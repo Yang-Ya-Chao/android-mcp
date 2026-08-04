@@ -536,38 +536,68 @@ def _manage_imports(original: str, requested: list[str], action: str) -> str:
     if action not in {"add", "remove"}:
         raise AndroidMcpError(f"imports 的 uses_action 必须是 add/remove：{action}", code="invalid_import_action")
     lines = original.splitlines(keepends=True)
-    import_indexes = [index for index, line in enumerate(lines) if re.match(r"^\s*import\s+\S+", line)]
-    existing = {re.match(r"^\s*import\s+(.+?)\s*$", lines[index].rstrip("\r\n")).group(1) for index in import_indexes}
-    normalized_requested = {item.strip().removeprefix("import ").strip() for item in requested if item and item.strip()}
-    if action == "remove":
-        remaining = {
-            item
-            for item in existing
-            if item not in normalized_requested and item.split(" as ", 1)[0].strip() not in normalized_requested
-        }
-    else:
-        remaining = existing | normalized_requested
-    indent = ""
-    if import_indexes:
-        indent = re.match(r"^\s*", lines[import_indexes[0]]).group(0)
-        first = min(import_indexes)
-        last = max(import_indexes)
-        block = [f"{indent}import {item}\n" for item in sorted(remaining)]
-        if lines[last].endswith("\r\n"):
-            block = [line.replace("\n", "\r\n") for line in block]
-        lines[first : last + 1] = block
-        return "".join(lines)
-    if action == "remove" or not normalized_requested:
-        return original
-    insert_at = 0
-    for index, line in enumerate(lines):
-        if line.lstrip().startswith("package "):
-            insert_at = index + 1
-            break
     newline = "\r\n" if "\r\n" in original else "\n"
-    block = [f"import {item}{newline}" for item in sorted(normalized_requested)]
-    lines[insert_at:insert_at] = ([newline] if insert_at and lines[insert_at - 1].strip() else []) + block
-    return "".join(lines)
+    import_re = re.compile(r"^\s*import\s+(.+?)\s*$")
+    import_rows: list[tuple[int, str]] = []
+    for index, line in enumerate(lines):
+        match = import_re.match(line.rstrip("\r\n"))
+        if match:
+            import_rows.append((index, match.group(1).strip()))
+    existing = {spec for _, spec in import_rows}
+    requested_specs = {item.strip().removeprefix("import ").strip() for item in requested if item and item.strip()}
+    if action == "remove":
+        removed_indexes = {
+            index
+            for index, spec in import_rows
+            if spec in requested_specs or spec.split(" as ", 1)[0].strip() in requested_specs
+        }
+        if not removed_indexes:
+            return original
+        # 只删除命中的 import 行，保留块内的注释与空行
+        return "".join(line for index, line in enumerate(lines) if index not in removed_indexes)
+    # add：按完整 spec 或基名（import a.b.C vs import a.b.C as D）去重
+    requested_specs = {
+        spec
+        for spec in requested_specs
+        if not any(spec == existing_spec or spec == existing_spec.split(" as ", 1)[0].strip() for existing_spec in existing)
+    }
+    if not requested_specs:
+        return original
+    if not import_rows:
+        insert_at = 0
+        for index, line in enumerate(lines):
+            if line.lstrip().startswith("package "):
+                insert_at = index + 1
+                break
+        block = [f"import {spec}{newline}" for spec in sorted(requested_specs)]
+        lines[insert_at:insert_at] = ([newline] if insert_at and lines[insert_at - 1].strip() else []) + block
+        return "".join(lines)
+    # 已有 import 块：按排序位置把新 import 插到对应现有 import 行之前，
+    # 逐行保留注释/空行，不整块重写。
+    indent = re.match(r"^\s*", lines[import_rows[0][0]]).group(0)
+    final_specs = sorted(set(existing) | requested_specs)
+    position = {spec: index for index, spec in enumerate(final_specs)}
+    new_lines = {spec: f"{indent}import {spec}{newline}" for spec in requested_specs}
+    emitted: set[str] = set()
+    output: list[str] = []
+    last_import_output_index: int | None = None
+    for index, line in enumerate(lines):
+        row = next((item for item in import_rows if item[0] == index), None)
+        if row is None:
+            output.append(line)
+            continue
+        spec = row[1]
+        for new_spec in sorted(requested_specs):
+            if new_spec not in emitted and position[new_spec] < position[spec]:
+                output.append(new_lines[new_spec])
+                emitted.add(new_spec)
+        output.append(line)
+        last_import_output_index = len(output) - 1
+    remaining = [new_lines[spec] for spec in sorted(requested_specs) if spec not in emitted]
+    if remaining:
+        insert_at = last_import_output_index + 1 if last_import_output_index is not None else len(output)
+        output[insert_at:insert_at] = remaining
+    return "".join(output)
 
 
 def _edit_manifest(original: str, operation: str, target: str, attribute_name: str | None, attribute_value: str | None) -> str:

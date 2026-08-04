@@ -8,6 +8,7 @@ from tempfile import TemporaryDirectory
 
 from android_mcp.models import AndroidMcpError
 from android_mcp.server import create_server
+from android_mcp.services.build_service import _artifacts
 from android_mcp.services.edit_guard import EditGuard
 from android_mcp.services.file_service import FileService
 from android_mcp.services.task_manager import TaskManager
@@ -64,6 +65,52 @@ class FileServiceTests(unittest.TestCase):
             )
             self.assertTrue(imports["success"])
             self.assertIn("import kotlin.io.println", source.read_text(encoding="utf-8"))
+
+    def test_imports_preserve_comments_between_imports(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "Main.kt"
+            source.write_text('package demo\n\nimport a.b.C\n// keep me\nimport d.e.F\n', encoding="utf-8")
+            service = FileService(EditGuard())
+
+            added = service.edit(
+                project_root=str(root),
+                file_path="Main.kt",
+                action="imports",
+                imports=["kotlin.io.println"],
+                uses_action="add",
+                dry_run=False,
+            )
+            self.assertTrue(added["success"])
+            content = source.read_text(encoding="utf-8")
+            self.assertIn("import kotlin.io.println", content)
+            self.assertIn("// keep me", content)
+            self.assertEqual(content.count("import "), 3)
+
+            removed = service.edit(
+                project_root=str(root),
+                file_path="Main.kt",
+                action="imports",
+                imports=["a.b.C"],
+                uses_action="remove",
+                dry_run=False,
+            )
+            self.assertTrue(removed["success"])
+            content = source.read_text(encoding="utf-8")
+            self.assertNotIn("import a.b.C", content)
+            self.assertIn("// keep me", content)
+            self.assertIn("import d.e.F", content)
+
+    def test_artifacts_module_inference(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            apk = root / "app" / "build" / "outputs" / "apk" / "debug" / "x.apk"
+            apk.parent.mkdir(parents=True)
+            apk.write_bytes(b"PK\x03\x04")
+            artifacts = _artifacts(root, [":app:assembleDebug"])
+            self.assertEqual(len(artifacts), 1)
+            self.assertEqual(artifacts[0]["module"], "app")
+            self.assertEqual(artifacts[0]["variant"], "debug")
 
     def test_protected_paths_are_rejected(self) -> None:
         with TemporaryDirectory() as directory:

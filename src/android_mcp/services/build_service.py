@@ -298,7 +298,8 @@ def _fix_hint(message: str) -> str | None:
 
 
 def _artifacts(root: Path, tasks: list[str]) -> list[dict[str, Any]]:
-    module_names = {task.split(":")[1] for task in tasks if task.startswith(":") and len(task.split(":")) > 2}
+    module_names = {_module_from_task(task) for task in tasks if task.startswith(":")}
+    module_names.discard(None)
     files: list[Path] = []
     for module in module_names:
         output = root / module / "build" / "outputs"
@@ -307,5 +308,16 @@ def _artifacts(root: Path, tasks: list[str]) -> list[dict[str, Any]]:
     result = []
     for path in sorted(files):
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        result.append({"path": str(path), "type": path.suffix.lower().lstrip("."), "module": path.parts[-4] if len(path.parts) >= 4 else None, "variant": path.parent.name, "size_bytes": path.stat().st_size, "sha256": digest})
+        relative = path.relative_to(root)
+        module = relative.parts[0] if len(relative.parts) else None
+        result.append({"path": str(path), "type": path.suffix.lower().lstrip("."), "module": module, "variant": path.parent.name, "size_bytes": path.stat().st_size, "sha256": digest})
     return result
+
+
+def _module_from_task(task: str) -> str | None:
+    parts = task.split(":")
+    # ":app:assembleDebug" -> ["", "app", "assembleDebug"] -> "app"
+    # ":lib:feature:ui:assembleDebug" -> ["", "lib", "feature", "ui", "assembleDebug"] -> "lib/feature/ui"
+    if len(parts) < 3 or not parts[1]:
+        return None
+    return ":".join(parts[1:-1]).replace(":", "/")
