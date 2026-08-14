@@ -21,10 +21,37 @@ class HelpService:
         examples = {
             "android_environment": {"action": action or "detect", "project_root": "D:/Android/example"},
             "android_project": {"action": action or "discover", "project_root": "D:/Android/example"},
-            "android_file": {"action": action or "replace", "project_root": "D:/Android/example", "file_path": "app/src/main/java/example/MainActivity.kt", "edits": [{"start_line": 10, "end_line": 10, "old_content": "旧行", "content": "新行"}], "dry_run": True},
+            "android_file": {
+                "action": action or "replace",
+                "project_root": "D:/Android/example",
+                "file_path": "app/src/main/java/example/MainActivity.kt",
+                "edits": [{"start_line": 10, "end_line": 10, "old_content": "旧行", "content": "新行"}],
+                "evidence_ids": ["ev_from_android_kb"],
+                "change_type": "code",
+                "dry_run": True,
+            },
             "android_build": {"action": action or "assemble", "project_root": "D:/Android/example", "module": "app", "variant": "debug"},
-            "android_device": {"action": action or "list", "project_root": "D:/Android/example", "serial": "emulator-5554"},
+            "android_device": {
+                "action": action or "run_sequence",
+                "project_root": "D:/Android/example",
+                "serial": "emulator-5554",
+                "steps": [
+                    {"action": "tap", "selector": "Login", "selector_type": "text"},
+                    {"action": "input_text", "text": "demo@example.com"},
+                    {"action": "press", "key": "ENTER"},
+                    {"action": "wait_for", "text": "Home", "timeout_ms": 5000},
+                    {"action": "screenshot", "name": "home"},
+                ],
+                "screenshot_each_step": True,
+            },
             "android_task": {"action": action or "status", "task_id": "task_xxx"},
-            "android_kb": {"action": action or "search", "project_root": "D:/Android/example", "query": "MainActivity"},
+            "android_kb": {
+                "action": action or "search",
+                "project_root": "D:/Android/example",
+                "query": "notification permission Android 13",
+                "scope": "official",
+                "require_citation": True,
+                "top_k": 8,
+            },
         }
         return ok({"tool_name": tool_name, "action": action, "description": definition.description, "plugin": definition.plugin, "actions": actions, "extensions": list(definition.extensions), "example": examples.get(tool_name)})

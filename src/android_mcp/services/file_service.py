@@ -18,12 +18,15 @@ import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterator
 
 from ..models import AndroidMcpError, ok
 from ..paths import PathPolicy
 from ..utils.kotlin_normalize import normalize_code, normalize_text
 from .edit_guard import EditGuard, fingerprint
+
+if TYPE_CHECKING:
+    from .rule_engine import RuleEngine
 
 
 class RWLock:
@@ -63,9 +66,10 @@ class RWLock:
 
 
 class FileService:
-    def __init__(self, guard: EditGuard | None = None) -> None:
+    def __init__(self, guard: EditGuard | None = None, rule_engine: "RuleEngine | None" = None) -> None:
         self.policy = PathPolicy()
         self.guard = guard or EditGuard()
+        self.rule_engine = rule_engine
         self._locks: dict[str, RWLock] = {}
         self._locks_guard = threading.Lock()
         self._dirty: set[str] = set()
@@ -187,6 +191,12 @@ class FileService:
         dependency: str | None = None,
         configuration: str = "implementation",
         dependencies_action: str = "add",
+        evidence_ids: list[str] | None = None,
+        change_type: str | None = None,
+        change_reason: str | None = None,
+        vendor: str | None = None,
+        api_level: int | None = None,
+        target_sdk: int | None = None,
     ) -> dict[str, Any]:
         if action == "backup":
             return self.backup(
@@ -196,6 +206,19 @@ class FileService:
                 version=version,
             )
         path = self.policy.file(project_root, file_path, allow_missing=action == "write")
+        rule_check = None
+        if self.rule_engine:
+            rule_check = self.rule_engine.validate_write(
+                project_root=project_root,
+                file_path=file_path,
+                action=action,
+                evidence_ids=evidence_ids,
+                change_type=change_type,
+                change_reason=change_reason,
+                vendor=vendor,
+                api_level=api_level,
+                target_sdk=target_sdk,
+            )
         lock = self._lock_for(path)
         with lock.write():
             if path.exists():
@@ -212,6 +235,7 @@ class FileService:
                     allow_dirty=allow_dirty,
                     from_encoding=from_encoding,
                     to_encoding=to_encoding,
+                    rule_check=rule_check,
                 )
             dependency_warnings: list[str] = []
             if action == "format":
@@ -266,6 +290,8 @@ class FileService:
             }
             if dependency_warnings:
                 response["dependency_warnings"] = dependency_warnings
+            if rule_check:
+                response["rule_check"] = rule_check
             if dry_run:
                 return ok(response, hint="这是预览结果；设置 dry_run=false 才会落盘。")
             if not path.exists() and action != "write":
@@ -292,6 +318,7 @@ class FileService:
         allow_dirty: bool,
         from_encoding: str | None,
         to_encoding: str | None,
+        rule_check: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if str(path) in self._dirty and not allow_dirty:
             raise AndroidMcpError(
@@ -320,6 +347,8 @@ class FileService:
             "before_sha256": hashlib.sha256(raw).hexdigest(),
             "after_sha256": hashlib.sha256(encoded).hexdigest(),
         }
+        if rule_check:
+            response["rule_check"] = rule_check
         if dry_run:
             return ok(response, hint="这是编码转换预览；设置 dry_run=false 才会落盘。")
         backup_path = _create_backup(path) if backup else None

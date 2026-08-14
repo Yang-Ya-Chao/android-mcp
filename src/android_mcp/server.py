@@ -8,7 +8,27 @@ import sys
 import time
 from typing import Any
 
-from mcp.server.mcpserver import MCPServer
+try:
+    from mcp.server.mcpserver import MCPServer
+except ModuleNotFoundError:
+    from mcp.server.fastmcp import FastMCP
+
+    class MCPServer(FastMCP):
+        """Compatibility constructor for the current MCP Python SDK."""
+
+        def __init__(
+            self,
+            *,
+            name: str,
+            version: str | None = None,
+            description: str | None = None,
+            instructions: str | None = None,
+            **kwargs: Any,
+        ) -> None:
+            combined_instructions = "\n".join(item for item in (description, instructions) if item)
+            super().__init__(name=name, instructions=combined_instructions or None, **kwargs)
+            self.version = version
+            self.description = description
 
 from . import __version__
 from .config import ConfigManager
@@ -25,6 +45,7 @@ from .services.git_service import GitService
 from .services.help_service import HelpService
 from .services.kb_service import KnowledgeBaseService
 from .services.project_service import ProjectService
+from .services.rule_engine import RuleEngine
 from .services.task_manager import TaskManager
 
 
@@ -49,12 +70,13 @@ def create_server() -> tuple[MCPServer, dict[str, Any]]:
     task_manager = TaskManager()
     global_config = config.load()
     guard = EditGuard(mode=str(global_config.get("edit_guard", {}).get("mode", "warn")))
-    file_service = FileService(guard)
     environment = EnvironmentService(config)
     project_service = ProjectService()
     build_service = BuildService(task_manager, environment, config)
     device_service = DeviceService(task_manager, environment, config)
     kb_service = KnowledgeBaseService(task_manager, config)
+    rule_engine = RuleEngine(kb_service, config)
+    file_service = FileService(guard, rule_engine)
     experience_service = ExperienceService(config)
     help_service = HelpService()
     git_service = GitService()
@@ -75,6 +97,7 @@ def create_server() -> tuple[MCPServer, dict[str, Any]]:
         "experience_handler": experience_service.handle,
         "git_handler": git_service.handle,
         "update_handler": _update_handler,
+        "rule_engine": rule_engine,
     }
     # The help handler needs the final registry, but the closure is evaluated only
     # after registration has completed.
@@ -87,8 +110,8 @@ def create_server() -> tuple[MCPServer, dict[str, Any]]:
         version=__version__,
         description="安全的 Kotlin/Android 本地 MCP 服务",
         instructions=(
-            "android-mcp: Kotlin/Gradle/XML 文件必须使用 android_file；编码和构建前先 get_coding_rules；"
-            "复杂工具调用前先 tool_help(tool_name, action)。"
+            "android-mcp: Kotlin/Gradle/XML 文件必须使用 android_file；编码前先检索 android_kb 并保留 evidence_id；"
+            "构建前先 get_coding_rules 与 android_environment；复杂工具调用前先 tool_help(tool_name, action)。"
         ),
     )
 
@@ -131,6 +154,12 @@ def create_server() -> tuple[MCPServer, dict[str, Any]]:
         dependency: str | None = None,
         configuration: str = "implementation",
         dependencies_action: str = "add",
+        evidence_ids: list[str] | None = None,
+        change_type: str | None = None,
+        change_reason: str | None = None,
+        vendor: str | None = None,
+        api_level: int | None = None,
+        target_sdk: int | None = None,
     ) -> dict[str, Any]:
         return _safe_call(
             registry,
@@ -164,6 +193,12 @@ def create_server() -> tuple[MCPServer, dict[str, Any]]:
             dependency=dependency,
             configuration=configuration,
             dependencies_action=dependencies_action,
+            evidence_ids=evidence_ids,
+            change_type=change_type,
+            change_reason=change_reason,
+            vendor=vendor,
+            api_level=api_level,
+            target_sdk=target_sdk,
         )
 
     @mcp.tool(name="android_build", description="通过项目 Gradle Wrapper 异步执行受控构建任务。", structured_output=True)
@@ -190,16 +225,101 @@ def create_server() -> tuple[MCPServer, dict[str, Any]]:
         activity: str | None = None,
         confirm: bool = False,
         lines: int = 200,
+        x: int | None = None,
+        y: int | None = None,
+        x2: int | None = None,
+        y2: int | None = None,
+        duration_ms: int | None = None,
+        text: str | None = None,
+        key: str | None = None,
+        selector: str | None = None,
+        selector_type: str = "text",
+        match: str = "contains",
+        timeout_ms: int = 5000,
+        poll_interval_ms: int = 250,
+        wait_ms: int = 500,
+        steps: list[dict[str, Any]] | None = None,
+        max_steps: int = 50,
+        screenshot_each_step: bool = False,
+        include_xml: bool = False,
+        name: str | None = None,
     ) -> dict[str, Any]:
-        return _safe_call(registry, "android_device", action=action, project_root=project_root, serial=serial, apk_path=apk_path, package_name=package_name, activity=activity, confirm=confirm, lines=lines)
+        return _safe_call(
+            registry,
+            "android_device",
+            action=action,
+            project_root=project_root,
+            serial=serial,
+            apk_path=apk_path,
+            package_name=package_name,
+            activity=activity,
+            confirm=confirm,
+            lines=lines,
+            x=x,
+            y=y,
+            x2=x2,
+            y2=y2,
+            duration_ms=duration_ms,
+            text=text,
+            key=key,
+            selector=selector,
+            selector_type=selector_type,
+            match=match,
+            timeout_ms=timeout_ms,
+            poll_interval_ms=poll_interval_ms,
+            wait_ms=wait_ms,
+            steps=steps,
+            max_steps=max_steps,
+            screenshot_each_step=screenshot_each_step,
+            include_xml=include_xml,
+            name=name,
+        )
 
     @mcp.tool(name="android_task", description="查询、长轮询、获取结果或取消异步任务。", structured_output=True)
     def android_task(action: str = "list", task_id: str | None = None, long_poll_seconds: float = 0.0, task_type: str | None = None, limit: int = 50) -> dict[str, Any]:
         return _safe_call(registry, "android_task", action=action, task_id=task_id, long_poll_seconds=long_poll_seconds, task_type=task_type, limit=limit)
 
-    @mcp.tool(name="android_kb", description="项目 Kotlin/XML 轻量检索知识库。", structured_output=True)
-    def android_kb(action: str = "search", project_root: str | None = None, query: str | None = None, search_type: str = "all", top_k: int = 20, rebuild: bool = False, file_path: str | None = None) -> dict[str, Any]:
-        return _safe_call(registry, "android_kb", action=action, project_root=project_root, query=query, search_type=search_type, top_k=top_k, rebuild=rebuild, file_path=file_path)
+    @mcp.tool(name="android_kb", description="检索项目源码、Google/AOSP 与小米官方 Android 资料，并生成可验证引用。", structured_output=True)
+    def android_kb(
+        action: str = "search",
+        project_root: str | None = None,
+        query: str | None = None,
+        search_type: str = "all",
+        top_k: int = 20,
+        rebuild: bool = False,
+        file_path: str | None = None,
+        source_id: str | None = None,
+        locator: str | None = None,
+        source_ids: list[str] | None = None,
+        scope: str = "all",
+        api_level: int | None = None,
+        target_sdk: int | None = None,
+        vendor: str | None = None,
+        os_name: str | None = None,
+        require_citation: bool = False,
+        evidence_id: str | None = None,
+    ) -> dict[str, Any]:
+        return _safe_call(
+            registry,
+            "android_kb",
+            action=action,
+            project_root=project_root,
+            query=query,
+            search_type=search_type,
+            top_k=top_k,
+            rebuild=rebuild,
+            file_path=file_path,
+            source_id=source_id,
+            locator=locator,
+            source_ids=source_ids,
+            scope=scope,
+            api_level=api_level,
+            target_sdk=target_sdk,
+            vendor=vendor,
+            os_name=os_name,
+            require_citation=require_citation,
+            evidence_id=evidence_id,
+        )
 
     @mcp.tool(name="get_coding_rules", description="按章节返回 Android/Kotlin 编码规则。", structured_output=True)
     def get_coding_rules(section: str | None = None, language: str = "kotlin") -> dict[str, Any]:
@@ -232,15 +352,54 @@ def create_server() -> tuple[MCPServer, dict[str, Any]]:
 
     @mcp.resource("android://resources")
     def resources_index() -> str:
-        return json.dumps({"resources": ["android://health", "android://coding-rules", "android://troubleshooting", "android://device-testing"], "prompts": ["android-build-workflow", "android-test-plan", "android-failure-recover"]}, ensure_ascii=False)
+        return json.dumps(
+            {
+                "resources": [
+                    "android://health",
+                    "android://coding-rules",
+                    "android://kb/catalog",
+                    "android://kb/policy",
+                    "android://troubleshooting",
+                    "android://device-testing",
+                ],
+                "prompts": [
+                    "android-knowledge-first",
+                    "android-build-workflow",
+                    "android-test-plan",
+                    "android-failure-recover",
+                ],
+            },
+            ensure_ascii=False,
+        )
 
     @mcp.resource("android://health")
     def health() -> str:
-        return json.dumps({"version": __version__, "uptime_seconds": round(time.time() - STARTED_AT, 3), "tools": [definition.name for definition in registry.definitions()], "edit_guard": guard.snapshot()}, ensure_ascii=False)
+        return json.dumps(
+            {
+                "version": __version__,
+                "uptime_seconds": round(time.time() - STARTED_AT, 3),
+                "tools": [definition.name for definition in registry.definitions()],
+                "edit_guard": guard.snapshot(),
+                "knowledge_base": {
+                    "catalog_sources": len(kb_service.catalog.sources()),
+                    "official_records": len(kb_service.catalog.records()),
+                    "official_index_path": str(kb_service.catalog.index_path),
+                },
+            },
+            ensure_ascii=False,
+        )
 
     @mcp.resource("android://coding-rules")
     def coding_rules_resource() -> str:
         return json.dumps(get_rules()["data"], ensure_ascii=False)
+
+    @mcp.resource("android://kb/catalog")
+    def kb_catalog_resource() -> str:
+        return json.dumps({"version": 1, "sources": kb_service.catalog.sources()}, ensure_ascii=False)
+
+    @mcp.resource("android://kb/policy")
+    def kb_policy_resource() -> str:
+        return _resource_text("kb-policy.md")
 
     @mcp.resource("android://troubleshooting")
     def troubleshooting_resource() -> str:
@@ -254,6 +413,15 @@ def create_server() -> tuple[MCPServer, dict[str, Any]]:
     def android_build_workflow(project_root: str = "") -> str:
         return f"请按顺序执行 android_environment detect、android_project discover、android_build assemble，并在失败时阅读 diagnostics。项目根：{project_root}"
 
+    @mcp.prompt(name="android-knowledge-first", description="检索官方依据后再修改 Android 源码。")
+    def android_knowledge_first(project_root: str = "", task: str = "") -> str:
+        return (
+            "请先执行 android_environment detect 和 android_project discover；"
+            "再用 android_kb 搜索项目源码，并用 scope=official 检索 Google/AOSP/Xiaomi 官方依据；"
+            "保存返回的 evidence_id，验证后才允许调用 android_file 写入；"
+            f"项目根：{project_root}；任务：{task}"
+        )
+
     @mcp.prompt(name="android-test-plan", description="生成 Android 测试计划。")
     def android_test_plan(project_root: str = "") -> str:
         return f"请先用 android_kb 搜索入口类和测试，再规划单元测试、Lint 与设备验证。项目根：{project_root}"
@@ -262,7 +430,7 @@ def create_server() -> tuple[MCPServer, dict[str, Any]]:
     def android_failure_recover(error: str = "") -> str:
         return f"请将错误归类为环境、Gradle、Kotlin、AAPT2、Manifest、D8/R8 或依赖问题，给出最小修复并重试。错误：{error}"
 
-    return mcp, {"registry": registry, "guard": guard, "tasks": task_manager}
+    return mcp, {"registry": registry, "guard": guard, "tasks": task_manager, "kb": kb_service, "rule_engine": rule_engine}
 
 
 def _environment_handler(environment: EnvironmentService, action: str | None, project_root: str | None, **_: Any) -> dict[str, Any]:
@@ -306,6 +474,12 @@ def _file_handler(file_service: FileService, action: str | None, **kwargs: Any) 
         "dependency": kwargs.get("dependency"),
         "configuration": kwargs.get("configuration", "implementation"),
         "dependencies_action": kwargs.get("dependencies_action", "add"),
+        "evidence_ids": kwargs.get("evidence_ids"),
+        "change_type": kwargs.get("change_type"),
+        "change_reason": kwargs.get("change_reason"),
+        "vendor": kwargs.get("vendor"),
+        "api_level": kwargs.get("api_level"),
+        "target_sdk": kwargs.get("target_sdk"),
     }
     return file_service.edit(action=action or "read", **edit_kwargs)
 

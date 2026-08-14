@@ -53,7 +53,11 @@ class ConfigManager:
         base = Path(os.environ.get("LOCALAPPDATA", Path.home() / ".local")) / "android-mcp" / "state"
         if project_root is None:
             return base / "global"
-        digest = hashlib.sha256(str(project_root).encode("utf-8")).hexdigest()[:16]
+        # Windows may expose the same temporary/project directory through an
+        # 8.3 path and a fully expanded path.  Normalize before hashing so the
+        # project index and evidence store cannot split into two runtimes.
+        normalized_root = Path(project_root).expanduser().resolve()
+        digest = hashlib.sha256(str(normalized_root).encode("utf-8")).hexdigest()[:16]
         return base / digest
 
     def load(self, project_root: Path | None = None) -> dict[str, Any]:

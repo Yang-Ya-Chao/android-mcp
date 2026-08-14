@@ -1,0 +1,177 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "id": "google.android.guides",
+      "authority": "google",
+      "kind": "documentation",
+      "title": "Develop for Android",
+      "url": "https://developer.android.com/develop",
+      "refresh": "weekly",
+      "license_ref": "google-content-license",
+      "tags": ["android", "guides", "api", "architecture"]
+    },
+    {
+      "id": "google.android.api",
+      "authority": "google",
+      "kind": "api_reference",
+      "title": "Android API reference",
+      "url": "https://developer.android.com/reference/",
+      "refresh": "weekly",
+      "license_ref": "google-content-license",
+      "tags": ["android", "api", "kotlin", "java"]
+    },
+    {
+      "id": "google.android.compatibility",
+      "authority": "google",
+      "kind": "compatibility",
+      "title": "App compatibility in Android",
+      "url": "https://developer.android.com/guide/app-compatibility",
+      "refresh": "weekly",
+      "license_ref": "google-content-license",
+      "tags": ["compatibility", "target-sdk", "api-level", "behavior-changes"]
+    },
+    {
+      "id": "google.android.architecture",
+      "authority": "google",
+      "kind": "architecture",
+      "title": "Recommendations for Android architecture",
+      "url": "https://developer.android.com/topic/architecture/recommendations",
+      "refresh": "weekly",
+      "license_ref": "google-content-license",
+      "tags": ["architecture", "compose", "viewmodel", "coroutines", "flow"]
+    },
+    {
+      "id": "google.android.kotlin-style",
+      "authority": "google",
+      "kind": "style",
+      "title": "Kotlin style guide",
+      "url": "https://developer.android.com/kotlin/style-guide",
+      "refresh": "monthly",
+      "license_ref": "google-content-license",
+      "tags": ["kotlin", "style", "formatting"]
+    },
+    {
+      "id": "google.android.samples",
+      "authority": "google",
+      "kind": "samples",
+      "title": "Android Samples",
+      "url": "https://developer.android.com/samples",
+      "refresh": "monthly",
+      "license_ref": "google-content-license",
+      "tags": ["samples", "kotlin", "compose", "androidx"]
+    },
+    {
+      "id": "aosp.compatibility-cdd",
+      "authority": "aosp",
+      "kind": "compatibility",
+      "title": "Android Compatibility Definition Document",
+      "url": "https://source.android.com/docs/compatibility/cdd",
+      "refresh": "monthly",
+      "license_ref": "aosp-content-license",
+      "tags": ["aosp", "cdd", "cts", "compatibility"]
+    },
+    {
+      "id": "aosp.source-download",
+      "authority": "aosp",
+      "kind": "source_guide",
+      "title": "Download the Android source",
+      "url": "https://source.android.com/docs/setup/download",
+      "refresh": "monthly",
+      "license_ref": "aosp-content-license",
+      "tags": ["aosp", "source", "repo", "android-latest-release"]
+    },
+    {
+      "id": "aosp.frameworks-base",
+      "authority": "aosp",
+      "kind": "source_repository",
+      "title": "AOSP frameworks/base",
+      "url": "https://android.googlesource.com/platform/frameworks/base/",
+      "refresh": "metadata",
+      "license_ref": "aosp-repository-license",
+      "tags": ["aosp", "framework", "services", "source"]
+    },
+    {
+      "id": "androidx.frameworks-support",
+      "authority": "google",
+      "kind": "source_repository",
+      "title": "AndroidX frameworks/support",
+      "url": "https://android.googlesource.com/platform/frameworks/support",
+      "refresh": "metadata",
+      "license_ref": "androidx-repository-license",
+      "tags": ["androidx", "jetpack", "compose", "source"]
+    },
+    {
+      "id": "xiaomi.hyperos.app-develop",
+      "authority": "xiaomi",
+      "kind": "platform",
+      "title": "应用开发 | 小米澎湃OS开发者平台",
+      "url": "https://dev.mi.com/xiaomihyperos/app-develop",
+      "refresh": "weekly",
+      "license_ref": "xiaomi-platform-terms",
+      "tags": ["xiaomi", "hyperos", "miui", "adaptation"]
+    },
+    {
+      "id": "xiaomi.hyperos.android15",
+      "authority": "xiaomi",
+      "kind": "compatibility",
+      "title": "Android 15 应用适配指南",
+      "url": "https://dev.mi.com/xiaomihyperos/documentation/detail?pId=1826",
+      "refresh": "weekly",
+      "license_ref": "xiaomi-platform-terms",
+      "api_level": 35,
+      "os": "HyperOS",
+      "tags": ["xiaomi", "hyperos", "android15", "16kb", "pendingintent", "predictive-back"]
+    },
+    {
+      "id": "xiaomi.hyperos.large-screen-ux",
+      "authority": "xiaomi",
+      "kind": "ux",
+      "title": "大屏应用UX体验标准",
+      "url": "https://dev.mi.com/xiaomihyperos/documentation/detail?pId=2040",
+      "refresh": "monthly",
+      "license_ref": "xiaomi-platform-terms",
+      "tags": ["xiaomi", "large-screen", "foldable", "multi-window", "accessibility"]
+    },
+    {
+      "id": "xiaomi.hyperos.notification-small-icon",
+      "authority": "xiaomi",
+      "kind": "compatibility",
+      "title": "通知小图标适配规范",
+      "url": "https://dev.mi.com/xiaomihyperos/documentation/detail?pId=1582",
+      "refresh": "monthly",
+      "license_ref": "xiaomi-platform-terms",
+      "tags": ["xiaomi", "notification", "foreground-service", "small-icon"]
+    },
+    {
+      "id": "xiaomi.hyperos.multi-window",
+      "authority": "xiaomi",
+      "kind": "compatibility",
+      "title": "分屏功能适配说明",
+      "url": "https://dev.mi.com/xiaomihyperos/documentation/detail?pId=1592",
+      "refresh": "monthly",
+      "license_ref": "xiaomi-platform-terms",
+      "tags": ["xiaomi", "miui", "multi-window", "resizeableActivity"]
+    },
+    {
+      "id": "xiaomi.hyperos.64-bit",
+      "authority": "xiaomi",
+      "kind": "distribution",
+      "title": "应用商店支持64位架构适配",
+      "url": "https://dev.mi.com/xiaomihyperos/documentation/detail?pId=1715",
+      "refresh": "monthly",
+      "license_ref": "xiaomi-platform-terms",
+      "tags": ["xiaomi", "abi", "64-bit", "native", "apk"]
+    },
+    {
+      "id": "xiaomi.hyperos.widgets",
+      "authority": "xiaomi",
+      "kind": "ux",
+      "title": "Xiaomi HyperOS小部件设计规范",
+      "url": "https://dev.mi.com/xiaomihyperos/documentation/detail?pId=1664",
+      "refresh": "monthly",
+      "license_ref": "xiaomi-platform-terms",
+      "tags": ["xiaomi", "hyperos", "widget", "launcher"]
+    }
+  ]
+}
