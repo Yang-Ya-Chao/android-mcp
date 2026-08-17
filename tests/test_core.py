@@ -22,6 +22,7 @@ from android_mcp.services.device_service import (
 from android_mcp.services.edit_guard import EditGuard
 from android_mcp.services.file_service import FileService
 from android_mcp.services.task_manager import TaskManager
+from android_mcp.plugins.base import PluginRegistry
 from unittest.mock import patch
 from subprocess import CompletedProcess
 from xml.etree import ElementTree as ET
@@ -290,6 +291,17 @@ class ServerTests(unittest.TestCase):
                 return {"tool_name": tool_name, "action": action, "name": kwargs["name"]}
 
         result = _safe_call(Registry(), "android_device", action="screenshot", name="home")
+        self.assertEqual(result["name"], "home")
+
+    def test_registry_dispatch_allows_device_screenshot_name(self) -> None:
+        class Definition:
+            name = "android_device"
+            actions = ("screenshot",)
+            handler = staticmethod(lambda **kwargs: kwargs)
+
+        registry = PluginRegistry()
+        registry._tools["android_device"] = Definition()
+        result = registry.dispatch("android_device", action="screenshot", name="home")
         self.assertEqual(result["name"], "home")
 
     def test_mcp_surface_and_help(self) -> None:

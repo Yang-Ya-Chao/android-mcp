@@ -42,12 +42,12 @@ class PluginRegistry:
     def plugins(self) -> list[AndroidPlugin]:
         return sorted(self._plugins.values(), key=lambda item: item.name)
 
-    def dispatch(self, name: str, *, action: str | None = None, **kwargs: Any) -> Any:
-        definition = self._tools.get(name)
+    def dispatch(self, definition_name: str, *, action: str | None = None, **kwargs: Any) -> Any:
+        definition = self._tools.get(definition_name)
         if not definition:
-            raise KeyError(name)
+            raise KeyError(definition_name)
         if action and definition.actions and action not in definition.actions:
-            raise ValueError(f"unsupported action: {name}/{action}")
+            raise ValueError(f"unsupported action: {definition_name}/{action}")
         if definition.actions:
             return definition.handler(action=action, **kwargs)
         if action is not None:
