@@ -110,7 +110,7 @@ def create_registry(services: dict[str, Any]) -> PluginRegistry:
                 ToolDefinition("tool_help", "按工具与 action 返回参数说明和示例。", "core", (), handler=services["help_handler"]),
                 ToolDefinition("experience", "保存、检索和维护本地问题解决经验。", "core", ("save", "search", "get", "list", "prune"), handler=services["experience_handler"]),
                 ToolDefinition("code_hosting", "只读 Git 状态、日志和 diff 的安全入口。", "core", ("git_status", "git_log", "git_diff"), handler=services["git_handler"]),
-                ToolDefinition("android_mcp_update", "检查当前服务版本；更新由安装器负责。", "core", ("version", "check"), handler=services["update_handler"]),
+                ToolDefinition("android_mcp_update", "检查当前服务版本；check 对比远端，upgrade 从 git 升级并自动重启。", "core", ("version", "check", "upgrade"), handler=services["update_handler"]),
             ],
         )
     )
