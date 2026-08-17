@@ -530,6 +530,7 @@ def _task_handler(task_manager: TaskManager, action: str | None, **kwargs: Any) 
 
 
 _VERSION_LINE_RE = re.compile(r"^\s*__version__\s*=\s*['\"]([^'\"]+)['\"]\s*$", re.MULTILINE)
+_PYPROJECT_VERSION_RE = re.compile(r"^version\s*=\s*['\"]([^'\"]+)['\"]", re.MULTILINE)
 
 
 def _update_config() -> dict[str, Any]:
@@ -585,17 +586,27 @@ def _remote_version(settings: dict[str, Any]) -> str:
 
 
 def _version_identifier(branch: str, repository: str) -> str | None:
-    """Read the latest branch version via raw.githubusercontent, falling back to the GitHub tags API."""
+    """Read the latest branch version, preferring pyproject.toml over __init__.py.
+
+    ``raw.githubusercontent.com`` serves each path from its own CDN cache, so a
+    freshly pushed commit can briefly report a stale value for one file. The
+    version that ``pip install`` actually installs comes from ``pyproject.toml``,
+    so that is the authoritative source here; ``__init__.py`` is a cross-check.
+    """
     timeout_seconds = _update_config()["timeout_seconds"]
-    # 1) raw file on the configured branch (no API rate limit).
-    raw_url = f"https://raw.githubusercontent.com/{repository}/{branch}/src/android_mcp/__init__.py"
-    try:
-        body = _http_get(raw_url, timeout_seconds=timeout_seconds)
-        match = _VERSION_LINE_RE.search(body)
+    raw_base = f"https://raw.githubusercontent.com/{repository}/{branch}"
+    # 1) pyproject.toml (authoritative for pip).
+    for relative, regex in (
+        ("pyproject.toml", _PYPROJECT_VERSION_RE),
+        ("src/android_mcp/__init__.py", _VERSION_LINE_RE),
+    ):
+        try:
+            body = _http_get(f"{raw_base}/{relative}", timeout_seconds=timeout_seconds)
+        except AndroidMcpError:
+            continue
+        match = regex.search(body)
         if match:
             return match.group(1)
-    except AndroidMcpError:
-        pass
     # 2) GitHub tags API fallback (rate-limited; respects token env).
     tags_url = f"https://api.github.com/repos/{repository}/tags?per_page=10"
     try:
