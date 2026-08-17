@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param(
     [string]$Python = "python",
-    [string]$VenvPath = ".venv"
+    [string]$VenvPath = ".venv",
+    [string]$Repository = "https://github.com/Yang-Ya-Chao/android-mcp.git",
+    [string]$Revision = "main"
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,6 +16,10 @@ if (-not (Test-Path -LiteralPath $pythonExe)) {
 }
 
 & $pythonExe -m pip install --upgrade pip
-& $pythonExe -m pip install --editable $workspace
-Write-Host "android-mcp installed in $venv"
+$installSpec = "git+$Repository@$Revision"
+& $pythonExe -m pip install --upgrade --force-reinstall --no-cache-dir $installSpec
+
+$probe = & $pythonExe -c "import android_mcp, importlib.metadata as m; print(android_mcp.__file__); print(m.version('android-mcp'))"
+Write-Host "android-mcp installed from git: $installSpec"
+Write-Host "Package probe: $probe"
 Write-Host "Configure the MCP client with: $pythonExe -m android_mcp"
