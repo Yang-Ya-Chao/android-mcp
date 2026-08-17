@@ -74,6 +74,12 @@ class ConfigManager:
                 "timeout_seconds": 20,
                 "max_file_bytes": 180_000,
             },
+            "update": {
+                "repository": "Yang-Ya-Chao/android-mcp",
+                "branch": "main",
+                "timeout_seconds": 20,
+                "install_spec": "git+https://github.com/Yang-Ya-Chao/android-mcp.git@main",
+            },
             "environment": {},
         }
         _deep_merge(merged, global_config)

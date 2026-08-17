@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import importlib.metadata as _metadata
 import json
 import logging
+import os
+import re
+import subprocess
 import sys
+import threading
 import time
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 try:
     from mcp.server.mcpserver import MCPServer
@@ -522,12 +529,227 @@ def _task_handler(task_manager: TaskManager, action: str | None, **kwargs: Any) 
     raise AndroidMcpError(f"android_task 不支持 action：{action}", code="unsupported_action")
 
 
+_VERSION_LINE_RE = re.compile(r"^\s*__version__\s*=\s*['\"]([^'\"]+)['\"]\s*$", re.MULTILINE)
+
+
+def _update_config() -> dict[str, Any]:
+    config = ConfigManager().load()
+    settings = config.get("update") or {}
+    if not isinstance(settings, dict):
+        settings = {}
+    repository = str(settings.get("repository") or "Yang-Ya-Chao/android-mcp")
+    branch = str(settings.get("branch") or "main")
+    timeout = 1 if not isinstance(settings.get("timeout_seconds"), int) else settings["timeout_seconds"]
+    timeout = max(1, min(int(timeout), 60))
+    install_spec = str(
+        settings.get("install_spec")
+        or f"git+https://github.com/{repository}@{branch}"
+    )
+    return {"repository": repository, "branch": branch, "timeout_seconds": timeout, "install_spec": install_spec}
+
+
+def _install_mode() -> str:
+    """Report how the running package was installed."""
+    try:
+        dist = _metadata.distribution("android-mcp")
+    except _metadata.PackageNotFoundError:
+        return "unknown"
+    direct_url = getattr(dist, "read_text", lambda name: None)("direct_url.json")
+    if direct_url:
+        try:
+            info = json.loads(direct_url)
+        except (TypeError, ValueError):
+            info = {}
+        if info.get("dir_info", {}).get("editable"):
+            return "editable"
+        if info.get("vcs_info"):
+            return "from-git"
+        return "wheel"
+    return "managed"
+
+
+def _remote_version(settings: dict[str, Any]) -> str:
+    repository = settings["repository"].strip("/")
+    branch = settings["branch"]
+    timeout = settings["timeout_seconds"]
+    identifier = _version_identifier(branch, repository)
+
+    if identifier is not None:
+        return identifier
+
+    raise AndroidMcpError(
+        "无法判断远端最新版本（请检查网络或 update.repository / update.branch 配置）。",
+        code="update_check_failed",
+        hint="可用 GITHUB_TOKEN 或 GH_TOKEN 提高 GitHub API 速率；或检查远端仓库与分支是否存在。",
+    )
+
+
+def _version_identifier(branch: str, repository: str) -> str | None:
+    """Read the latest branch version via raw.githubusercontent, falling back to the GitHub tags API."""
+    timeout_seconds = _update_config()["timeout_seconds"]
+    # 1) raw file on the configured branch (no API rate limit).
+    raw_url = f"https://raw.githubusercontent.com/{repository}/{branch}/src/android_mcp/__init__.py"
+    try:
+        body = _http_get(raw_url, timeout_seconds=timeout_seconds)
+        match = _VERSION_LINE_RE.search(body)
+        if match:
+            return match.group(1)
+    except AndroidMcpError:
+        pass
+    # 2) GitHub tags API fallback (rate-limited; respects token env).
+    tags_url = f"https://api.github.com/repos/{repository}/tags?per_page=10"
+    try:
+        payload = _http_get_json(tags_url, timeout_seconds=timeout_seconds)
+    except AndroidMcpError:
+        return None
+    tags = payload if isinstance(payload, list) else []
+    for item in tags:
+        if isinstance(item, dict) and item.get("name"):
+            return str(item["name"])
+    return None
+
+
+def _http_get(url: str, *, timeout_seconds: int) -> str:
+    request = Request(url, headers={"User-Agent": "android-mcp-update", "Accept": "application/vnd.github.raw+json"})
+    try:
+        with urlopen(request, timeout=timeout_seconds) as response:
+            return response.read(500_000).decode("utf-8", errors="replace")
+    except HTTPError as exc:
+        if exc.code == 404:
+            raise AndroidMcpError("远端文件不存在。", code="update_remote_not_found", hint=str(exc)) from exc
+        raise AndroidMcpError(f"远端请求失败：HTTP {exc.code}", code="update_remote_error") from exc
+    except (URLError, TimeoutError) as exc:
+        raise AndroidMcpError("无法连接远端更新源。", code="update_unreachable", hint=str(exc)) from exc
+
+
+def _http_get_json(url: str, *, timeout_seconds: int) -> Any:
+    settings = ConfigManager().load().get("github") or {}
+    token_env = str(settings.get("token_env") or "GITHUB_TOKEN")
+    token = os.environ.get(token_env) or os.environ.get("GH_TOKEN")
+    headers = {
+        "User-Agent": "android-mcp-update",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = Request(url, headers=headers)
+    try:
+        with urlopen(request, timeout=timeout_seconds) as response:
+            raw = response.read(2_000_001)
+    except HTTPError as exc:
+        if exc.code == 404:
+            raise AndroidMcpError("远端仓库或资源不存在。", code="update_remote_not_found") from exc
+        raise AndroidMcpError(f"远端请求失败：HTTP {exc.code}", code="update_remote_error") from exc
+    except (URLError, TimeoutError) as exc:
+        raise AndroidMcpError("无法连接远端更新源。", code="update_unreachable", hint=str(exc)) from exc
+    try:
+        return json.loads(raw.decode("utf-8", errors="replace"))
+    except (TypeError, ValueError) as exc:
+        raise AndroidMcpError("远端返回了无效 JSON。", code="update_invalid_response") from exc
+
+
+def _install_python() -> str | None:
+    """Return the Python binary to use for pip, preferring the running venv interpreter."""
+    if sys.executable:
+        return sys.executable
+    return None
+
+
+def _run_pip_upgrade(settings: dict[str, Any]) -> dict[str, str]:
+    python = _install_python()
+    if not python:
+        raise AndroidMcpError("找不到当前 Python 解释器。", code="update_python_missing")
+    command = [python, "-m", "pip", "install", "--upgrade", settings["install_spec"]]
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=max(settings["timeout_seconds"] * 6, 300),
+            check=False,
+        )
+    except OSError as exc:
+        raise AndroidMcpError(f"pip 执行失败：{exc}", code="update_pip_failed", hint=str(exc)) from exc
+    if completed.returncode != 0:
+        raise AndroidMcpError(
+            "pip 升级失败。",
+            code="update_pip_failed",
+            hint=(completed.stderr or completed.stdout)[-2000:],
+        )
+    return {"stdout": completed.stdout[-2000:], "stderr": completed.stderr[-2000:]}
+
+
+def _schedule_self_exit(*, delay_seconds: float = 2.0) -> None:
+    """Terminate the process shortly after the current tool response is flushed.
+
+    The MCP host treats a clean process exit as a disconnected stdio server and
+    typically respawns it, which is exactly what an in-place upgrade wants.
+    A background timer gives the tool result time to reach the client first.
+    """
+
+    def _exit() -> None:
+        time.sleep(max(0.0, delay_seconds))
+        os._exit(0)
+
+    threading.Thread(target=_exit, daemon=True).start()
+
+
 def _update_handler(*, action: str | None = None, **_: Any) -> dict[str, Any]:
     if action == "version" or action is None:
-        return ok({"current_version": __version__, "update_available": False})
+        return ok(
+            {
+                "current_version": __version__,
+                "install_mode": _install_mode(),
+                "update_available": False,
+                "update_source": _update_config()["repository"],
+            }
+        )
     if action == "check":
-        return ok({"current_version": __version__, "update_available": False, "message": "未配置远程更新源。"})
-    raise AndroidMcpError("更新由安装器负责；当前只支持 version/check。", code="update_not_available")
+        settings = _update_config()
+        latest = _remote_version(settings)
+        return ok(
+            {
+                "current_version": __version__,
+                "latest_version": latest,
+                "update_available": latest != __version__,
+                "install_mode": _install_mode(),
+                "repository": settings["repository"],
+                "branch": settings["branch"],
+                "message": "有可用更新。" if latest != __version__ else "已是最新版本。",
+            }
+        )
+    if action == "upgrade":
+        settings = _update_config()
+        latest = _remote_version(settings)
+        if latest == __version__:
+            return ok(
+                {
+                    "updated": False,
+                    "current_version": __version__,
+                    "latest_version": latest,
+                    "message": "已是最新版本，无需升级。",
+                }
+            )
+        output = _run_pip_upgrade(settings)
+        LOGGER.info("android-mcp upgraded to %s; scheduling self-exit so the host respawns", latest)
+        _schedule_self_exit(delay_seconds=2)
+        return ok(
+            {
+                "updated": True,
+                "from_version": __version__,
+                "to_version": latest,
+                "install_mode": _install_mode(),
+                "message": "升级完成，服务即将重启以加载新版本。",
+                **output,
+            }
+        )
+    raise AndroidMcpError(
+        f"android_mcp_update 不支持 action：{action}（可用 version/check/upgrade）。",
+        code="unsupported_action",
+    )
 
 
 def _resource_text(name: str) -> str:
