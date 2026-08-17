@@ -10,7 +10,7 @@
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\install.ps1
 ~~~
 
-MCP 客户端使用 `.venv\\Scripts\\python.exe -m android_mcp` 作为 stdio 服务；该命令加载
+MCP 客户端使用 `.mcp-venv\\Scripts\\python.exe -m android_mcp` 作为 stdio 服务；该命令加载
 虚拟环境中的已安装包，不直接加载本工作区的 `src` 目录。
 **推荐用 `python -m android_mcp`，不要用 `android-mcp.exe` 入口**：Windows 下
 pip 重装会被正在运行的 `.exe` shim 锁文件而失败，`python -m` 方式不受影响，
@@ -30,11 +30,11 @@ pip 重装会被正在运行的 `.exe` shim 锁文件而失败，`python -m` 方
 命令核验当前运行包来自哪里：
 
 ~~~powershell
-& .\.venv\Scripts\python.exe -m pip list --editable
-& .\.venv\Scripts\python.exe -c "import android_mcp, importlib.metadata as m; print(android_mcp.__file__); print(m.version('android-mcp')); print(m.distribution('android-mcp').read_text('direct_url.json'))"
+& .\.mcp-venv\Scripts\python.exe -m pip list --editable
+& .\.mcp-venv\Scripts\python.exe -c "import android_mcp, importlib.metadata as m; print(android_mcp.__file__); print(m.version('android-mcp')); print(m.distribution('android-mcp').read_text('direct_url.json'))"
 ~~~
 
-第一条命令应无输出；第二条应显示 `.venv\\Lib\\site-packages` 和 Git 的
+第一条命令应无输出；第二条应显示 `.mcp-venv\\Lib\\site-packages` 和 Git 的
 `direct_url.json`。若从源码修复但尚未推送，不能作为 MCP 运行版本。
 
 服务本身提供版本检查与自更新：

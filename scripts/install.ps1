@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$Python = "python",
-    [string]$VenvPath = ".venv",
+    [string]$VenvPath = ".mcp-venv",
     [string]$Repository = "https://github.com/Yang-Ya-Chao/android-mcp.git",
     [string]$Revision = "main"
 )
