@@ -5,8 +5,9 @@
 1. 开发任务开始时调用 `android_environment(action="detect")` 和 `android_project(action="discover")`，确认 JDK、SDK、Gradle、模块和目标设备。
 2. 用 `android_kb(action="search", scope="project")` 检索当前项目源码、Gradle、Manifest 和既有测试，先理解项目约定。
 3. 用 `android_kb(action="search", scope="official")` 检索 Google/AOSP；涉及小米设备、HyperOS、权限策略、后台、通知、多窗口或大屏时，再用 `vendor="xiaomi"` 检索 Xiaomi 官方资料。
-4. 对 API、兼容性、依赖、Manifest、权限、后台和设备行为等变更设置 `require_citation=true`，保存返回的 `evidence_id`。
-5. 只有在检索结果足以支撑方案后，才调用 `android_file`；把 `evidence_ids` 传给写入动作。
+4. 对 API、兼容性、依赖、Manifest、权限、后台和设备行为等变更设置 `require_citation=true`，保存官方来源返回的 `evidence_id`。
+5. 对算法、数据结构、实现方式或测试辅助代码，可以调用 `android_kb(action="github_search", scope="github", require_citation=true)`，记录仓库、提交、许可证和内容哈希。
+6. 只有在检索结果足以支撑方案后，才调用 `android_file`；把 `evidence_ids` 传给写入动作。
 
 ## 查询建议
 
@@ -17,4 +18,4 @@
 
 ## 来源优先级
 
-Google Android 开发者文档、Android API Reference、AOSP/AndroidX 源码与 CDD 优先；小米资料用于 HyperOS/OEM 行为和小米设备适配；项目源码和测试用于本项目约定。搜索引擎摘要、论坛和未经验证的博客只能作为线索，不能作为官方敏感变更的唯一依据。
+Google Android 开发者文档、Android API Reference、AOSP/AndroidX 源码与 CDD 优先；小米资料用于 HyperOS/OEM 行为和小米设备适配；项目源码和测试用于本项目约定；GitHub 用于开源算法和实现对比。搜索引擎摘要、论坛和未经验证的博客只能作为线索，不能作为官方敏感变更的唯一依据；GitHub 证据也不能替代官方平台契约。

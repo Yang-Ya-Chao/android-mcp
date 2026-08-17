@@ -1,19 +1,40 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
+from urllib.parse import urlsplit
 
 from android_mcp.models import AndroidMcpError
 from android_mcp.services.edit_guard import EditGuard
 from android_mcp.services.file_service import FileService
+from android_mcp.services.github_catalog import GitHubSourceCatalog
 from android_mcp.services.kb_catalog import OfficialSourceCatalog, _parse_html
 from android_mcp.services.kb_service import KnowledgeBaseService
 from android_mcp.services.rule_engine import RuleEngine
 from android_mcp.services.task_manager import TaskManager
+
+
+class _FakeResponse:
+    def __init__(self, payload: dict[str, object], url: str) -> None:
+        self.payload = payload
+        self.url = url
+
+    def __enter__(self) -> "_FakeResponse":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        return None
+
+    def geturl(self) -> str:
+        return self.url
+
+    def read(self, _limit: int = -1) -> bytes:
+        return json.dumps(self.payload).encode("utf-8")
 
 
 class KnowledgeBaseTests(unittest.TestCase):
@@ -153,6 +174,104 @@ class KnowledgeBaseTests(unittest.TestCase):
                     self.assertTrue(preview["data"]["rule_check"]["has_official_source"])
                 finally:
                     tasks._executor.shutdown(wait=True)
+
+    def test_github_evidence_supports_algorithms_but_not_platform_contracts(self) -> None:
+        with TemporaryDirectory() as runtime, TemporaryDirectory() as directory:
+            with patch.dict(
+                os.environ,
+                {"LOCALAPPDATA": runtime, "GITHUB_TOKEN": "test-token"},
+                clear=False,
+            ):
+                root = Path(directory)
+                (root / "Algorithm.kt").write_text("package demo\n", encoding="utf-8")
+                content = "fun binarySearch(values: IntArray, target: Int): Int = -1\n"
+                search_payload = {
+                    "total_count": 1,
+                    "items": [
+                        {
+                            "path": "src/Algorithm.kt",
+                            "repository": {
+                                "full_name": "octocat/Hello-World",
+                                "default_branch": "main",
+                                "stargazers_count": 42,
+                                "fork": False,
+                                "archived": False,
+                                "license": {"spdx_id": "MIT"},
+                            },
+                            "language": "Kotlin",
+                        }
+                    ],
+                }
+                content_payload = {
+                    "type": "file",
+                    "encoding": "base64",
+                    "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
+                    "sha": "blob-sha-1",
+                }
+
+                def fake_urlopen(request: object, timeout: int = 0) -> _FakeResponse:
+                    del timeout
+                    url = str(getattr(request, "full_url", ""))
+                    path = urlsplit(url).path
+                    if path == "/search/code":
+                        return _FakeResponse(search_payload, url)
+                    if path == "/repos/octocat/Hello-World/contents/src/Algorithm.kt":
+                        return _FakeResponse(content_payload, url)
+                    raise AssertionError(f"unexpected GitHub endpoint: {url}")
+
+                with patch("android_mcp.services.github_catalog.urlopen", side_effect=fake_urlopen):
+                    catalog = GitHubSourceCatalog()
+                    direct = catalog.search("algorithm language:Kotlin", top_k=1)
+                    self.assertEqual(direct["fetched"], 1)
+                    record = direct["records"][0]
+                    self.assertEqual(record["source"], "github")
+                    self.assertEqual(record["source_tier"], "non_official")
+                    self.assertEqual(record["repository"], "octocat/Hello-World")
+                    self.assertEqual(record["ref"], "main")
+                    self.assertEqual(record["commit"], "blob-sha-1")
+                    self.assertEqual(record["license_ref"], "MIT")
+                    self.assertNotIn("test-token", catalog.index_path.read_text(encoding="utf-8"))
+                    self.assertIn("binarySearch", catalog.read(record["id"])["content"])
+
+                    tasks = TaskManager(max_workers=1)
+                    try:
+                        kb = KnowledgeBaseService(tasks)
+                        result = kb.handle(
+                            action="github_search",
+                            project_root=str(root),
+                            query="binary search algorithm",
+                            require_citation=True,
+                        )
+                        data = result["data"]
+                        self.assertFalse(data["authoritative"])
+                        self.assertTrue(data["has_github_source"])
+                        self.assertTrue(data["citation_available"])
+                        evidence_id = data["evidence_id"]
+                        self.assertTrue(kb.verify(root, evidence_id)["verified"])
+
+                        engine = RuleEngine(kb)
+                        allowed = engine.validate_write(
+                            project_root=str(root),
+                            file_path="Algorithm.kt",
+                            action="replace",
+                            evidence_ids=[evidence_id],
+                            change_type="algorithm",
+                            change_reason="compare an open-source algorithm implementation",
+                        )
+                        self.assertTrue(allowed["allowed"])
+                        self.assertTrue(allowed["has_github_source"])
+                        with self.assertRaises(AndroidMcpError) as official_required:
+                            engine.validate_write(
+                                project_root=str(root),
+                                file_path="Algorithm.kt",
+                                action="replace",
+                                evidence_ids=[evidence_id],
+                                change_type="api",
+                                change_reason="change Android API behavior",
+                            )
+                        self.assertEqual(official_required.exception.code, "official_evidence_required")
+                    finally:
+                        tasks._executor.shutdown(wait=True)
 
 
 if __name__ == "__main__":

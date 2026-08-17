@@ -19,11 +19,12 @@ from ..config import ConfigManager
 from ..models import AndroidMcpError, now_iso, ok
 from ..paths import PathPolicy
 from .file_service import FileService
+from .github_catalog import GitHubSourceCatalog
 from .kb_catalog import OfficialSourceCatalog
 from .task_manager import TaskManager
 
 
-_SCOPES = {"all", "project", "official", "google", "aosp", "xiaomi"}
+_SCOPES = {"all", "project", "official", "google", "aosp", "xiaomi", "github"}
 _PROJECT_SUFFIXES = {".kt", ".kts", ".java", ".xml", ".gradle", ".md"}
 _EXCLUDED_PARTS = {".git", ".gradle", ".idea", "build", "captures", "__history"}
 
@@ -35,6 +36,7 @@ class KnowledgeBaseService:
         self.policy = PathPolicy()
         self.file_service = FileService()
         self.catalog = OfficialSourceCatalog(self.config)
+        self.github = GitHubSourceCatalog(self.config)
 
     def handle(
         self,
@@ -84,28 +86,42 @@ class KnowledgeBaseService:
                 hint="官方资料同步已异步提交，请使用 android_task(action=\"result\")。",
             )
         if action == "catalog":
-            return ok({"version": 1, "sources": self.catalog.sources()})
+            official_sources = self.catalog.sources()
+            github_sources = self.github.sources()
+            return ok(
+                {
+                    "version": 2,
+                    "sources": official_sources + github_sources,
+                    "official_sources": official_sources,
+                    "github_sources": github_sources,
+                }
+            )
         if action == "stats":
             return ok(self.stats(root))
-        if action == "search":
+        if action in {"search", "github_search", "search_github"}:
             if not query:
                 raise AndroidMcpError("android_kb search 需要 query。", code="missing_query")
+            github_search = action in {"github_search", "search_github"} or scope == "github"
+            selected_scope = "github" if action in {"github_search", "search_github"} else scope
             return ok(
                 self.search(
                     root,
                     query,
                     search_type,
                     top_k,
-                    scope=scope,
+                    scope=selected_scope,
                     api_level=api_level,
                     target_sdk=target_sdk,
                     vendor=vendor,
                     os_name=os_name,
                     require_citation=require_citation,
+                    refresh_github=github_search,
                 )
             )
         if action in {"read", "read_source"}:
             if source_id:
+                if source_id.startswith("github:"):
+                    return ok(self.github.read(source_id, locator))
                 return ok(self.catalog.read(source_id, locator))
             if not file_path:
                 raise AndroidMcpError("android_kb read 需要 file_path 或 source_id。", code="missing_file_path")
@@ -183,6 +199,7 @@ class KnowledgeBaseService:
         payload = self._load(root)
         project_records = payload.get("records", []) if payload else []
         official_records = self.catalog.records()
+        github_records = self.github.records()
         evidence = self._load_evidence(root)
         return {
             "project_root": str(root),
@@ -190,6 +207,8 @@ class KnowledgeBaseService:
             "indexed_files": len(project_records),
             "official_records": len(official_records),
             "official_index_path": str(self.catalog.index_path),
+            "github_records": len(github_records),
+            "github_index_path": str(self.github.index_path),
             "evidence_records": len(evidence),
             "built_at": payload.get("built_at") if payload else None,
             "official_built_at": self.catalog.load_index().get("built_at"),
@@ -209,6 +228,7 @@ class KnowledgeBaseService:
         vendor: str | None = None,
         os_name: str | None = None,
         require_citation: bool = False,
+        refresh_github: bool = False,
     ) -> dict[str, Any]:
         if scope not in _SCOPES:
             raise AndroidMcpError(
@@ -227,7 +247,15 @@ class KnowledgeBaseService:
         candidates: list[dict[str, Any]] = []
         if scope in {"all", "project"} and payload:
             candidates.extend(payload.get("records", []))
-        if scope != "project":
+        github_search_result: dict[str, Any] | None = None
+        if refresh_github or scope == "github":
+            github_search_result = self.github.search(query, top_k=top_k)
+        if scope == "github":
+            candidates.extend((github_search_result or {}).get("records", self.github.records()))
+        elif scope == "all":
+            candidates.extend(self.catalog.records())
+            candidates.extend(self.github.records())
+        elif scope != "project":
             candidates.extend(self.catalog.records())
 
         tokens = [
@@ -276,11 +304,22 @@ class KnowledgeBaseService:
         results.sort(key=lambda item: (-item["score"], item.get("authority", ""), item.get("id", "")))
         results = results[: max(1, min(int(top_k), 100))]
         authoritative = any(item.get("source") == "official" for item in results)
-        if require_citation and not authoritative:
+        has_github_source = any(item.get("source") == "github" for item in results)
+        citation_available = authoritative or has_github_source
+        source_counts = {
+            source: sum(1 for item in results if item.get("source") == source)
+            for source in ("project", "official", "github")
+        }
+        comparison = {
+            "mixed_sources": source_counts["official"] > 0 and source_counts["github"] > 0,
+            "requires_manual_review": source_counts["official"] > 0 and source_counts["github"] > 0,
+            "note": "不同来源仅并列展示，不自动判定 GitHub 实现与官方契约一致。",
+        }
+        if require_citation and not citation_available:
             raise AndroidMcpError(
-                "没有找到可引用的官方或 AOSP 依据。",
+                "没有找到可引用的官方或 GitHub 依据。",
                 code="evidence_insufficient",
-                hint="先同步官方来源，或降低查询范围后重新检索；不要凭猜测修改代码。",
+                hint="平台/API/权限/兼容性变更请同步官方来源；算法或实现类变更可使用 scope=github，并保留仓库、版本和许可证信息。",
             )
         evidence_id = self._save_evidence(
             root,
@@ -301,8 +340,23 @@ class KnowledgeBaseService:
             "result_count": len(results),
             "evidence_id": evidence_id,
             "authoritative": authoritative,
+            "has_official_source": authoritative,
+            "has_github_source": has_github_source,
+            "has_non_official_source": has_github_source,
+            "citation_available": citation_available,
+            "source_counts": source_counts,
+            "comparison": comparison,
             "project_fresh": self._is_fresh(root, payload.get("records", [])) if payload else False,
             "official_indexed": bool(self.catalog.records()),
+            "github_indexed": bool(self.github.records()),
+            "github_searched": github_search_result is not None,
+            "github_search": {
+                key: value
+                for key, value in (github_search_result or {}).items()
+                if key != "records"
+            }
+            if github_search_result is not None
+            else None,
         }
 
     def read(self, root: Path, file_path: str) -> dict[str, Any]:
@@ -315,18 +369,31 @@ class KnowledgeBaseService:
 
     def verify(self, root: Path, evidence_id: str) -> dict[str, Any]:
         evidence = self.get_evidence(root, evidence_id)
-        current_ids = {str(item.get("id")) for item in self.catalog.records()}
+        current_official = {str(item.get("id")): item for item in self.catalog.records()}
+        current_github = {str(item.get("id")): item for item in self.github.records()}
         project_payload = self._load(root)
         project_fresh = self._is_fresh(root, project_payload.get("records", [])) if project_payload else False
         invalid_sources: list[str] = []
+        github_fresh = True
         for source in evidence.get("sources", []):
-            if source.get("source") == "official" and source.get("id") not in current_ids:
-                invalid_sources.append(str(source.get("id")))
-        verified = not invalid_sources and (project_fresh or not evidence.get("has_project_source"))
+            source_id = str(source.get("id"))
+            if source.get("source") == "official" and source_id not in current_official:
+                invalid_sources.append(source_id)
+            if source.get("source") == "github":
+                current = current_github.get(source_id)
+                if not current or source.get("content_hash") != current.get("content_hash"):
+                    invalid_sources.append(source_id)
+                    github_fresh = False
+        verified = not invalid_sources and (project_fresh or not evidence.get("has_project_source")) and github_fresh
+        has_github_source = bool(evidence.get("has_github_source")) or any(
+            source.get("source") == "github" for source in evidence.get("sources", [])
+        )
         return {
             "evidence_id": evidence_id,
             "verified": verified,
             "project_fresh": project_fresh,
+            "github_fresh": github_fresh,
+            "has_github_source": has_github_source,
             "invalid_sources": invalid_sources,
             "created_at": evidence.get("created_at"),
             "sources": evidence.get("sources", []),
@@ -343,8 +410,10 @@ class KnowledgeBaseService:
         snippet = _snippet(content, tokens)
         return {
             "id": record.get("id"),
+            "source_id": record.get("source_id"),
             "source": record.get("source"),
             "authority": record.get("authority"),
+            "source_tier": record.get("source_tier") or ("official" if record.get("source") == "official" else None),
             "kind": record.get("kind"),
             "title": record.get("title"),
             "url": record.get("url"),
@@ -359,6 +428,13 @@ class KnowledgeBaseService:
             "fetched_at": record.get("fetched_at"),
             "content_hash": record.get("content_hash"),
             "license_ref": record.get("license_ref"),
+            "repository": record.get("repository"),
+            "repository_url": record.get("repository_url"),
+            "ref": record.get("ref"),
+            "commit": record.get("commit"),
+            "stars": record.get("stars"),
+            "fork": record.get("fork"),
+            "archived": record.get("archived"),
         }
 
     def _save_evidence(
@@ -377,13 +453,20 @@ class KnowledgeBaseService:
         sources = [
             {
                 "id": item.get("id"),
+                "source_id": item.get("source_id"),
                 "source": item.get("source"),
                 "authority": item.get("authority"),
+                "source_tier": item.get("source_tier"),
                 "title": item.get("title"),
                 "url": item.get("url"),
                 "path": item.get("path"),
                 "locator": item.get("locator"),
                 "content_hash": item.get("content_hash"),
+                "repository": item.get("repository"),
+                "repository_url": item.get("repository_url"),
+                "ref": item.get("ref"),
+                "commit": item.get("commit"),
+                "license_ref": item.get("license_ref"),
             }
             for item in results
         ]
@@ -400,6 +483,8 @@ class KnowledgeBaseService:
             "result_ids": [item.get("id") for item in results],
             "has_project_source": any(item.get("source") == "project" for item in results),
             "has_official_source": any(item.get("source") == "official" for item in results),
+            "has_github_source": any(item.get("source") == "github" for item in results),
+            "source_tiers": sorted({str(item.get("source_tier")) for item in results if item.get("source_tier")}),
             "sources": sources,
         }
         records = self._load_evidence(root)
@@ -444,6 +529,8 @@ class KnowledgeBaseService:
             return record.get("source") == "project"
         if scope == "official":
             return record.get("source") == "official"
+        if scope == "github":
+            return record.get("source") == "github"
         return record.get("authority") == scope
 
     @staticmethod

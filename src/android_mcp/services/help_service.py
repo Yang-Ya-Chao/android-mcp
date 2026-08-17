@@ -48,8 +48,8 @@ class HelpService:
             "android_kb": {
                 "action": action or "search",
                 "project_root": "D:/Android/example",
-                "query": "notification permission Android 13",
-                "scope": "official",
+                "query": "Kotlin algorithm implementation",
+                "scope": "github",
                 "require_citation": True,
                 "top_k": 8,
             },

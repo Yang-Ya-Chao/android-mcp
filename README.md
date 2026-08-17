@@ -66,8 +66,10 @@ android_device 保留原有的设备列表、安装、启动、停止、卸载�
 
 ## 知识库与证据规则
 
-`android_kb` 同时检索项目源码、Google/AOSP 与 Xiaomi HyperOS 官方资料；涉及 API、权限、Manifest、依赖、后台或设备兼容性时，先用 `require_citation=true` 获取 `evidence_id`，再把它传给 `android_file`。完整的来源白名单、同步、审计和开发流程见 [KNOWLEDGE_BASE.md](KNOWLEDGE_BASE.md)。
+`android_kb` 同时检索项目源码、Google/AOSP 与 Xiaomi HyperOS 官方资料，也支持只读检索 GitHub 开源实现。涉及 API、权限、Manifest、依赖、后台或设备兼容性时，先用官方来源的 `require_citation=true` 获取 `evidence_id`；算法、数据结构和实现对比可以使用 `scope="github"` 获取非官方证据，再把它传给 `android_file`。完整的来源层级、同步、审计和开发流程见 [KNOWLEDGE_BASE.md](KNOWLEDGE_BASE.md)。
 
-推荐编码顺序：`android_environment` → `android_project` → `android_kb(scope="project")` → `android_kb(scope="official", require_citation=true)` → `android_file(dry_run=true)` → `android_file(dry_run=false)` → `android_file(read)` → `android_build`。
+推荐编码顺序：`android_environment` → `android_project` → `android_kb(scope="project")` → 按变更类型选择 `scope="official"` 或 `scope="github"` → `android_file(dry_run=true)` → `android_file(dry_run=false)` → `android_file(read)` → `android_build`。
 
 涉及 API、兼容性、依赖、Manifest、权限、后台或设备行为的写入必须携带 `evidence_ids`；纯格式化只能使用 `android_file(action="format")` 豁免证据。规则章节可通过 `get_coding_rules` 获取。
+
+GitHub 检索通过固定的 GitHub REST API 读取代码，结果会记录仓库、分支、文件定位、blob SHA、许可证、抓取时间和内容哈希。建议配置 `GITHUB_TOKEN`（或 `GH_TOKEN`）以提高代码搜索稳定性；Token 只从环境变量读取，不会写入索引、证据或日志。GitHub 属于非官方来源，不能单独证明 Android 平台契约、权限、厂商行为或版本兼容性。

@@ -23,6 +23,13 @@ class RuleEngine:
         "background",
         "device",
     }
+    NON_OFFICIAL_CHANGE_TYPES = {
+        "algorithm",
+        "implementation",
+        "code",
+        "test",
+        "docs",
+    }
     _audit_lock = threading.Lock()
 
     def __init__(self, knowledge_base: Any, config: ConfigManager | None = None) -> None:
@@ -83,6 +90,11 @@ class RuleEngine:
             evidence_records.append(evidence)
 
         has_official = any(item.get("has_official_source") for item in evidence_records)
+        has_github = any(
+            item.get("has_github_source")
+            or any(source.get("source") == "github" for source in item.get("sources", []))
+            for item in evidence_records
+        )
         requires_official = normalized_type in self.OFFICIAL_CHANGE_TYPES or (vendor or "").lower() == "xiaomi"
         if requires_official and not has_official:
             raise AndroidMcpError(
@@ -105,6 +117,8 @@ class RuleEngine:
             "evidence_ids": normalized_ids,
             "authorities": authorities,
             "has_official_source": has_official,
+            "has_github_source": has_github,
+            "has_non_official_source": has_github,
             "requires_official": requires_official,
             "context": {
                 "vendor": vendor,
@@ -120,7 +134,7 @@ class RuleEngine:
     def infer_change_type(cls, action: str, change_type: str | None) -> str:
         if change_type:
             value = change_type.strip().lower().replace("-", "_")
-            allowed = cls.OFFICIAL_CHANGE_TYPES | {"code", "format", "test", "docs"}
+            allowed = cls.OFFICIAL_CHANGE_TYPES | cls.NON_OFFICIAL_CHANGE_TYPES | {"format"}
             if value not in allowed:
                 raise AndroidMcpError(f"不支持的 change_type：{change_type}", code="invalid_change_type")
             return value

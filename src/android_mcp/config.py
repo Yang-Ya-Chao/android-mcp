@@ -68,6 +68,12 @@ class ConfigManager:
             "edit_guard": {"mode": os.environ.get("ANDROID_EDIT_GUARD", "warn")},
             "allowed_project_roots": [],
             "build": {"timeout_seconds": 1800},
+            "github": {
+                "enabled": True,
+                "token_env": "GITHUB_TOKEN",
+                "timeout_seconds": 20,
+                "max_file_bytes": 180_000,
+            },
             "environment": {},
         }
         _deep_merge(merged, global_config)

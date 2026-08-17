@@ -87,9 +87,9 @@ def create_registry(services: dict[str, Any]) -> PluginRegistry:
                 ToolDefinition("android_task", "核心异步任务状态、结果、取消与列表。", "core", ("list", "status", "result", "cancel"), handler=services["task_handler"]),
                 ToolDefinition(
                     "android_kb",
-                    "检索项目源码、Google/AOSP 与小米官方 Android 资料，并生成可验证引用。",
+                    "检索项目源码、Google/AOSP/Xiaomi 官方资料与 GitHub 开源实现，并生成带来源层级的可验证引用。",
                     "core",
-                    ("search", "stats", "build", "sync_sources", "catalog", "read", "read_source", "verify"),
+                    ("search", "github_search", "stats", "build", "sync_sources", "catalog", "read", "read_source", "verify"),
                     handler=services["kb_handler"],
                 ),
                 ToolDefinition("get_coding_rules", "按章节返回 Android/Kotlin 编码规则。", "core", (), handler=services["rules_handler"]),

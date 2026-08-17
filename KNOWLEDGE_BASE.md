@@ -1,6 +1,6 @@
 # Android MCP 知识库与规则引擎规范
 
-本项目的 Android MCP 采用“项目源码 + 受控官方资料 + 可复核证据”的知识库模型。目标是让编码过程先检索依据、再执行写入，并且让每次敏感变更都能追溯到来源、版本和内容哈希。
+本项目的 Android MCP 采用“项目源码 + 受控官方资料 + GitHub 开源实现 + 可复核证据”的分层知识库模型。目标是让编码过程先检索依据、再执行写入，并且让每次变更都能追溯到来源、版本和内容哈希。
 
 ## 1. 知识来源
 
@@ -10,7 +10,11 @@
 - AOSP CDD、AOSP 下载说明、`frameworks/base` 和 AndroidX 源码仓库元数据；
 - Xiaomi HyperOS 应用开发、Android 15、通知、后台/多窗口、64 位、大屏和小组件资料。
 
-来源是 HTTPS 白名单，不允许 MCP 调用者把任意 URL 作为抓取代理。AOSP/AndroidX 大型仓库默认保存仓库元数据，不盲目克隆全部源码；需要具体源码时根据目录中的官方仓库链接和版本进行定向获取。
+官方来源是 HTTPS 白名单，不允许 MCP 调用者把任意 URL 作为抓取代理。AOSP/AndroidX 大型仓库默认保存仓库元数据，不盲目克隆全部源码；需要具体源码时根据目录中的官方仓库链接和版本进行定向获取。
+
+GitHub 是单独的非官方来源层，用于算法、数据结构、实现方式和测试样例的对比。它不代表 Android 平台、Google/AOSP 或 OEM 契约；API、权限、Manifest、依赖、后台、设备和兼容性变更仍必须包含官方证据。GitHub 查询只使用固定 REST API 的代码搜索和 Contents 读取接口，不接受任意 URL、任意 shell 或仓库克隆。
+
+GitHub 代码搜索建议配置环境变量 `GITHUB_TOKEN`（也支持 `GH_TOKEN`），Token 不进入 MCP 参数、日志、索引或 evidence 快照。非官方索引默认位于运行时目录的 `knowledge/github-index.json`；每条记录保存仓库、分支、文件路径、blob SHA、许可证标识、抓取时间和内容哈希。搜索结果受 GitHub API 速率限制、代码搜索权限、仓库删除/改写和许可证条件约束，不能视为官方事实。
 
 同步后的官方索引默认位于运行时目录的 `knowledge/official-index.json`，项目索引位于项目运行时目录的 `kb-index.json`。运行时目录由 `ConfigManager` 管理，不写入项目源码目录。
 
@@ -37,7 +41,9 @@ android_project(discover)
         ↓
 android_kb(search, scope=project)
         ↓
-android_kb(search, scope=official, require_citation=true)
+按变更类型选择：
+  android_kb(search, scope=official, require_citation=true)
+  android_kb(github_search, scope=github, require_citation=true)
         ↓
 android_file(edit, evidence_ids=[...], dry_run=true)
         ↓
@@ -69,6 +75,20 @@ android_file(read) → android_build → android_task(result)
 
 小米/HyperOS 任务增加 `vendor="xiaomi"`；需要同时看项目实现和官方契约时使用 `scope="all"`，并在结果中区分 `source=project` 与 `source=official`。
 
+算法或实现对比可以使用：
+
+```json
+{
+  "action": "github_search",
+  "query": "Kotlin binary search implementation",
+  "scope": "github",
+  "require_citation": true,
+  "top_k": 5
+}
+```
+
+返回结果中的 `source="github"`、`source_tier="non_official"`、`repository`、`ref`、`commit`、`license_ref` 和 `content_hash` 用于审查和复核。`authoritative` 仍只表示官方来源；GitHub 结果会标记 `has_github_source=true`，不会被误标为官方。
+
 ## 3. 证据与规则闸门
 
 `android_kb(search, require_citation=true)` 会生成 `evidence_id`，保存检索结果的来源、URL、定位信息、版本/API level、抓取时间和内容哈希。`android_file` 的代码写入必须传入这些 `evidence_ids`。
@@ -77,12 +97,12 @@ android_file(read) → android_build → android_task(result)
 
 | 变更类型 | 证据要求 |
 | --- | --- |
-| 普通业务代码 | 至少有项目源码/测试证据 |
+| 普通业务代码、算法、数据结构、实现对比和测试辅助代码 | 至少有项目源码/测试证据；需要外部实现参考时可使用 GitHub 证据 |
 | API、兼容性、依赖、Manifest、权限、后台、设备行为 | 至少有 Google/AOSP 或 Xiaomi 官方证据 |
 | 小米/HyperOS 适配 | 必须包含 Xiaomi 官方证据，并在目标 ROM 验证 |
 | 纯格式化/注释 | 可不带证据，但仍受文件安全和旧内容校验约束 |
 
-写入前会检查 evidence 是否存在、引用的记录是否仍在当前索引、内容哈希是否一致。证据失效或不足时拒绝写入，返回重新检索提示；不得用模型记忆或搜索摘要替代证据。
+写入前会检查 evidence 是否存在、引用的记录是否仍在当前索引、内容哈希是否一致。算法/实现类变更可以使用 GitHub 证据，但带有 `OFFICIAL_CHANGE_TYPES` 的平台契约变更或 `vendor="xiaomi"` 变更仍会拒绝 GitHub-only 证据。证据失效或不足时拒绝写入，返回重新检索提示；不得用模型记忆或搜索摘要替代证据。
 
 项目审计文件：
 
@@ -105,4 +125,5 @@ android_file(read) → android_build → android_task(result)
 - 每次官方页面结构或版本发生变化后重新同步，保留索引中的 `fetched_at`、`updated_at`、`last_modified` 和 `content_hash`。
 - 同步失败保留上一版可用记录，并把错误返回给任务结果；不能把失败页面标记为最新依据。
 - 新增官方来源必须先修改白名单、补充权威性和许可证链接，再增加测试；不接受任意用户 URL。
+- GitHub 适配必须保持来源层级为 `non_official`，保留仓库/提交/许可证/哈希，并增加 API mock 测试；不得将 GitHub 结果写入官方来源目录。
 - 代码审查以 evidence_id 为入口复核来源和定位；无法复核的实现应降级为待验证，不作为确定性结论交付。

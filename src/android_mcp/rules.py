@@ -18,8 +18,8 @@ DEFAULT_RULES = {
     "safety": """# 安全\n\n禁止修改 local.properties、密钥库、密码配置、.gradle、build、.idea 与 .git。不要回显密码、Token 或 API Key。\n""",
     "debugging": """# 诊断\n\n按 Kotlin 编译、Gradle 配置、AAPT2、Manifest merger、D8/R8、依赖和环境缺失分类定位。\n""",
     "agent_rules": """# Agent 硬规则\n\nKotlin/Gradle/XML 文件必须用 android_file；复杂 action 先 tool_help；构建前先环境检测；写入后重新 read。\n""",
-    "kb_search": """# 知识库检索\n\n编码前先用 android_kb 搜索项目源码，再检索 Google/AOSP 与小米官方资料。涉及 API、兼容性、依赖、Manifest、权限、后台或设备行为时，必须保留官方 evidence_id。\n""",
-    "evidence": """# 证据与写入闸门\n\nandroid_file 修改代码时提供 evidence_ids；证据必须能在当前知识库中复核。官方敏感变更至少需要 Google/AOSP 或 Xiaomi 来源，证据失效后先重新检索。\n""",
+    "kb_search": """# 知识库检索\n\n编码前先用 android_kb 搜索项目源码，再按变更类型检索 Google/AOSP/Xiaomi 官方资料或 GitHub 开源实现。API、兼容性、依赖、Manifest、权限、后台和设备行为必须保留官方 evidence_id；算法、数据结构和实现对比可以使用 scope=github 的非官方 evidence_id。\n""",
+    "evidence": """# 证据与写入闸门\n\nandroid_file 修改代码时提供 evidence_ids；证据必须能在当前知识库中复核。官方敏感变更至少需要 Google/AOSP 或 Xiaomi 来源；算法/实现类变更可以使用 GitHub，但 GitHub 证据不能替代平台或 OEM 官方依据。\n""",
     "architecture": """# Android 架构\n\n优先遵循官方架构建议、生命周期感知、单向数据流和分层边界；先检索对应源码与文档，再选择实现方式，不凭记忆猜测 API 行为。\n""",
     "xiaomi": """# 小米与 HyperOS 兼容\n\n涉及通知、后台、权限、多窗口、Android 版本适配或大屏体验时，除 Google/AOSP 资料外必须检索 Xiaomi 官方资料，并在真实设备或目标 ROM 上验证。\n""",
 }

@@ -279,7 +279,7 @@ def create_server() -> tuple[MCPServer, dict[str, Any]]:
     def android_task(action: str = "list", task_id: str | None = None, long_poll_seconds: float = 0.0, task_type: str | None = None, limit: int = 50) -> dict[str, Any]:
         return _safe_call(registry, "android_task", action=action, task_id=task_id, long_poll_seconds=long_poll_seconds, task_type=task_type, limit=limit)
 
-    @mcp.tool(name="android_kb", description="检索项目源码、Google/AOSP 与小米官方 Android 资料，并生成可验证引用。", structured_output=True)
+    @mcp.tool(name="android_kb", description="检索项目源码、Google/AOSP/Xiaomi 官方资料与 GitHub 开源实现，并生成带来源层级的可验证引用。", structured_output=True)
     def android_kb(
         action: str = "search",
         project_root: str | None = None,
@@ -413,11 +413,11 @@ def create_server() -> tuple[MCPServer, dict[str, Any]]:
     def android_build_workflow(project_root: str = "") -> str:
         return f"请按顺序执行 android_environment detect、android_project discover、android_build assemble，并在失败时阅读 diagnostics。项目根：{project_root}"
 
-    @mcp.prompt(name="android-knowledge-first", description="检索官方依据后再修改 Android 源码。")
+    @mcp.prompt(name="android-knowledge-first", description="按变更类型检索官方或 GitHub 依据后再修改 Android 源码。")
     def android_knowledge_first(project_root: str = "", task: str = "") -> str:
         return (
             "请先执行 android_environment detect 和 android_project discover；"
-            "再用 android_kb 搜索项目源码，并用 scope=official 检索 Google/AOSP/Xiaomi 官方依据；"
+            "再用 android_kb 搜索项目源码；平台契约用 scope=official，算法或实现对比可用 scope=github 检索 GitHub；"
             "保存返回的 evidence_id，验证后才允许调用 android_file 写入；"
             f"项目根：{project_root}；任务：{task}"
         )
