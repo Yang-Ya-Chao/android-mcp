@@ -32,12 +32,14 @@ class HelpService:
             },
             "android_build": {"action": action or "assemble", "project_root": "D:/Android/example", "module": "app", "variant": "debug"},
             "android_device": {
-                "action": action or "run_sequence",
+                "action": action or "snapshot",
                 "project_root": "D:/Android/example",
                 "serial": "emulator-5554",
+                "include_image": True,
                 "steps": [
-                    {"action": "tap", "selector": "Login", "selector_type": "text"},
-                    {"action": "input_text", "text": "demo@example.com"},
+                    {"action": "list_elements"},
+                    {"action": "tap", "selector": "登录", "selector_type": "text", "index": 0},
+                    {"action": "input_text", "text": "demo@example.com", "submit": True},
                     {"action": "press", "key": "ENTER"},
                     {"action": "wait_for", "text": "Home", "timeout_ms": 5000},
                     {"action": "screenshot", "name": "home"},

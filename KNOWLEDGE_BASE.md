@@ -104,6 +104,8 @@ android_file(read) → android_build → android_task(result)
 
 写入前会检查 evidence 是否存在、引用的记录是否仍在当前索引、内容哈希是否一致。算法/实现类变更可以使用 GitHub 证据，但带有 `OFFICIAL_CHANGE_TYPES` 的平台契约变更或 `vendor="xiaomi"` 变更仍会拒绝 GitHub-only 证据。证据失效或不足时拒绝写入，返回重新检索提示；不得用模型记忆或搜索摘要替代证据。
 
+设备自动化的参照审查记录在 `src/android_mcp/resources/device-testing.md`：本 MCP 只支持 Windows 主机和 Android 真机/模拟器，借鉴 CursorTouch/Android-MCP、mobile-next/mobile-mcp 和 minhalvp/android-mcp-server 的 Android 侧能力，但保留固定 ADB 白名单、路径校验、多设备 serial 校验、异步任务和敏感操作确认。
+
 项目审计文件：
 
 - `knowledge/evidence.json`：检索证据快照；

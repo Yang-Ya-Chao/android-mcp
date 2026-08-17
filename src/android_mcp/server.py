@@ -53,15 +53,15 @@ LOGGER = logging.getLogger("android_mcp")
 STARTED_AT = time.time()
 
 
-def _safe_call(registry: Any, name: str, *, action: str | None = None, **kwargs: Any) -> dict[str, Any]:
+def _safe_call(registry: Any, registry_name: str, *, action: str | None = None, **kwargs: Any) -> dict[str, Any]:
     try:
-        return registry.dispatch(name, action=action, **kwargs)
+        return registry.dispatch(registry_name, action=action, **kwargs)
     except AndroidMcpError as exc:
         return fail(exc)
     except (ValueError, KeyError) as exc:
         return fail(str(exc), code="invalid_request")
     except Exception as exc:  # pragma: no cover - MCP boundary must never crash the session
-        LOGGER.exception("tool %s failed", name)
+        LOGGER.exception("tool %s failed", registry_name)
         return fail("工具执行失败。", code="internal_error", hint=str(exc))
 
 
@@ -215,7 +215,7 @@ def create_server() -> tuple[MCPServer, dict[str, Any]]:
     ) -> dict[str, Any]:
         return _safe_call(registry, "android_build", action=action, project_root=project_root, module=module, variant=variant, backend=backend, tasks=tasks, timeout_seconds=timeout_seconds, confirm_release=confirm_release, connected=connected)
 
-    @mcp.tool(name="android_device", description="使用固定 action 操作 ADB 设备。", structured_output=True)
+    @mcp.tool(name="android_device", description="在 Windows 主机上通过固定 action 安全操作 Android 真机或模拟器。", structured_output=True)
     def android_device(
         action: str = "list",
         project_root: str | None = None,
@@ -235,6 +235,17 @@ def create_server() -> tuple[MCPServer, dict[str, Any]]:
         selector: str | None = None,
         selector_type: str = "text",
         match: str = "contains",
+        index: int = 0,
+        direction: str | None = None,
+        distance: int | None = None,
+        interval_ms: int = 100,
+        submit: bool = False,
+        include_image: bool = False,
+        interactive_only: bool = False,
+        orientation: str | None = None,
+        url: str | None = None,
+        output_path: str | None = None,
+        time_limit_seconds: int | None = None,
         timeout_ms: int = 5000,
         poll_interval_ms: int = 250,
         wait_ms: int = 500,
@@ -265,6 +276,17 @@ def create_server() -> tuple[MCPServer, dict[str, Any]]:
             selector=selector,
             selector_type=selector_type,
             match=match,
+            index=index,
+            direction=direction,
+            distance=distance,
+            interval_ms=interval_ms,
+            submit=submit,
+            include_image=include_image,
+            interactive_only=interactive_only,
+            orientation=orientation,
+            url=url,
+            output_path=output_path,
+            time_limit_seconds=time_limit_seconds,
             timeout_ms=timeout_ms,
             poll_interval_ms=poll_interval_ms,
             wait_ms=wait_ms,

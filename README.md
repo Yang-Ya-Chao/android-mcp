@@ -24,13 +24,15 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\sync-knowledge
 
 ## 设备自动化
 
-android_device 保留原有的设备列表、安装、启动、停止、卸载、logcat 和截图能力，并增加：
+android_device 面向 Windows 主机上的 Android 真机和模拟器，保留设备列表、安装、启动、停止、卸载、logcat 和截图能力，并增加：
 
-- screen_size：读取屏幕宽高和旋转方向。
-- ui_dump：读取 UIAutomator 层级，返回可用于定位的文本、content-desc、resource-id、class 和 bounds。
-- tap / long_press / swipe：按坐标操作，也可以用 selector 按文本或资源 ID 定位节点。
-- input_text / press / wait：输入文本、发送常用按键、等待界面稳定。
+- screen_size / get_orientation / set_orientation：读取或设置屏幕尺寸、密度和方向。
+- ui_dump / list_elements / snapshot：读取 UIAutomator 层级、结构化交互元素，或同时获取 UI 与截图。
+- tap / double_tap / long_press / swipe / drag：按坐标或 selector 操作，支持节点 index 和方向滑动。
+- input_text / press / open_url / wait：输入文本、发送按键、打开安全 URL、等待界面稳定；非 ASCII 输入可选用 DeviceKit 兜底。
 - wait_for / assert_text：等待或断言 UI 节点。
+- list_apps / list_packages / package_intents：读取可启动应用、已安装包和包的非数据 Intent。
+- start_screen_recording / stop_screen_recording：保存自动化过程的 MP4 证据。
 - run_sequence：一次提交多步交互流程，可在每一步后自动截图。
 
 示例：
@@ -41,8 +43,8 @@ android_device 保留原有的设备列表、安装、启动、停止、卸载�
   "project_root": "D:/Android/example",
   "serial": "emulator-5554",
   "steps": [
-    {"action": "tap", "selector": "登录", "selector_type": "text"},
-    {"action": "input_text", "text": "demo@example.com"},
+    {"action": "tap", "selector": "登录", "selector_type": "text", "index": 0},
+    {"action": "input_text", "text": "demo@example.com", "submit": true},
     {"action": "press", "key": "ENTER"},
     {"action": "wait_for", "text": "首页", "timeout_ms": 5000},
     {"action": "screenshot", "name": "home"}
@@ -53,7 +55,7 @@ android_device 保留原有的设备列表、安装、启动、停止、卸载�
 
 交互动作使用固定的 ADB 命令白名单，不提供任意 shell。每个长操作返回 task_id，用 android_task(action="result") 获取完整结果。多设备连接时必须显式传 serial。
 
-当前实现是“可控输入 + UI 层级感知 + 截图证据”，不是持续的视频流或远程桌面；如果需要实时画面，可以按步骤截图，或后续增加专门的屏幕流传输层。
+当前实现是“可控输入 + UI 层级感知 + 截图/录屏证据”，不是持续的视频流或远程桌面；如需实时画面，应使用 snapshot 或按步骤截图。大截图会保存在运行时目录并只返回 path，避免 MCP JSON 过大。
 
 ## 其他能力
 
