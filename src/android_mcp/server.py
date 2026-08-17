@@ -656,6 +656,100 @@ def _install_python() -> str | None:
     return None
 
 
+def _peers_matching() -> list[int]:
+    """Return the PIDs of sibling android-mcp processes for this venv, excluding the caller.
+
+    The current DSH connection spawns the server as ``python -m android_mcp``;
+    other clients on this machine may still launch it via the ``android-mcp(.exe)``
+    console shim. On Windows, a running process locks the shim / package files so a
+    ``pip install --upgrade`` can fail with WinError 32. Before upgrading we force
+    those peers down, then the host respawns them with the new code.
+    """
+    markers = ("android_mcp", "android-mcp")
+    try:
+        script = (
+            "Get-CimInstance Win32_Process | Where-Object { "
+            "$_.CommandLine -match 'android_mcp' -or $_.CommandLine -match 'android-mcp' "
+            "} | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress"
+        )
+        completed = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+            check=False,
+        )
+    except OSError as exc:
+        LOGGER.warning("peer enumeration failed: %s", exc)
+        return []
+    if completed.returncode != 0 or not completed.stdout.strip():
+        return []
+    try:
+        items = json.loads(completed.stdout)
+    except ValueError:
+        return []
+    if isinstance(items, dict):
+        items = [items]
+    my_pid = os.getpid()
+    my_parent = os.getppid() if hasattr(os, "getppid") else None
+    # Preserve the current host connection: the DSH client spawns this server and
+    # may run a child in the same tree. Killing those before the upgrade response
+    # flushes would drop the reply, so only terminate processes whose parent is
+    # neither ourselves nor our own parent (the DSH client process).
+    protected = {my_pid}
+    if my_parent:
+        protected.add(my_parent)
+    peers: list[int] = []
+    for item in items if isinstance(items, list) else []:
+        try:
+            pid = int(item.get("ProcessId"))
+        except (TypeError, ValueError):
+            continue
+        if pid in protected:
+            continue
+        parent = item.get("ParentProcessId")
+        try:
+            parent = int(parent)
+        except (TypeError, ValueError):
+            parent = None
+        if parent in protected:
+            continue
+        peers.append(pid)
+    return peers
+
+
+def _force_kill_peers() -> list[int]:
+    """Terminate sibling android-mcp processes to release locks before pip upgrade."""
+    killed: list[int] = []
+    for threshold in (3, 3000, 10000):
+        remaining = [pid for pid in _peers_matching() if pid not in killed]
+        if not remaining:
+            break
+        for pid in remaining:
+            try:
+                completed = subprocess.run(
+                    ["taskkill", "/F", "/PID", str(pid), "/T"],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=15,
+                    check=False,
+                )
+            except OSError as exc:
+                LOGGER.warning("failed to taskkill %s: %s", pid, exc)
+                continue
+            if completed.returncode == 0:
+                killed.append(pid)
+                LOGGER.info("force killed peer android-mcp pid %s", pid)
+            else:
+                LOGGER.warning("taskkill %s rc=%s stderr=%s", pid, completed.returncode, completed.stderr[:500])
+        time.sleep(0.3)
+    return killed
+
+
 def _run_pip_upgrade(settings: dict[str, Any]) -> dict[str, str]:
     python = _install_python()
     if not python:
@@ -733,6 +827,7 @@ def _update_handler(*, action: str | None = None, **_: Any) -> dict[str, Any]:
                     "message": "已是最新版本，无需升级。",
                 }
             )
+        killed = _force_kill_peers()
         output = _run_pip_upgrade(settings)
         LOGGER.info("android-mcp upgraded to %s; scheduling self-exit so the host respawns", latest)
         _schedule_self_exit(delay_seconds=2)
@@ -742,6 +837,7 @@ def _update_handler(*, action: str | None = None, **_: Any) -> dict[str, Any]:
                 "from_version": __version__,
                 "to_version": latest,
                 "install_mode": _install_mode(),
+                "force_killed_peers": killed,
                 "message": "升级完成，服务即将重启以加载新版本。",
                 **output,
             }
