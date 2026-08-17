@@ -10,7 +10,27 @@
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\install.ps1
 ~~~
 
-MCP 客户端使用 `.venv\\Scripts\\python.exe -m android_mcp` 作为 stdio 服务。服务更新后需要重启 MCP 连接，避免宿主继续使用旧进程。
+MCP 客户端使用 `.venv\\Scripts\\python.exe -m android_mcp` 作为 stdio 服务。
+**推荐用 `python -m android_mcp`，不要用 `android-mcp.exe` 入口**：Windows 下
+pip 重装会被正在运行的 `.exe` shim 锁文件而失败，`python -m` 方式不受影响，
+是自更新 `upgrade` 能可靠工作的前提。服务更新后需要重启 MCP 连接，避免宿主
+继续使用旧进程。
+
+从远端 git 仓库正式安装（非 editable，替换本地 editable 安装）：
+
+~~~powershell
+& .\.venv\Scripts\python.exe -m pip uninstall -y android-mcp
+& .\.venv\Scripts\python.exe -m pip install "git+https://github.com/Yang-Ya-Chao/android-mcp.git@main"
+~~~
+
+服务本身提供版本检查与自更新：
+
+- `android_mcp_update(action="check")`：读取远端 `main` 分支的 `__version__`，
+  与本地比对，返回 `latest_version` 与 `update_available`（升级版本前先改
+  `src/android_mcp/__init__.py` 并推送到远端）。
+- `android_mcp_update(action="upgrade")`：有更新时自动
+  `pip install --upgrade git+...` 到运行中的 venv，成功后服务 `exit(0)` 退出，
+  宿主客户端会自动重启以加载新版本。
 
 首次同步官方 Android 知识库：
 
