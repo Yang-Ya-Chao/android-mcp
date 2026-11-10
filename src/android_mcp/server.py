@@ -118,6 +118,7 @@ def create_server() -> tuple[MCPServer, dict[str, Any]]:
         description="安全的 Kotlin/Android 本地 MCP 服务",
         instructions=(
             "android-mcp: Kotlin/Gradle/XML 文件必须使用 android_file；编码前先检索 android_kb 并保留 evidence_id；"
+            "使用未入库官方网页前须调用 android_kb(action=\"import_url\", url=...) 并回查；"
             "构建前先 get_coding_rules 与 android_environment；复杂工具调用前先 tool_help(tool_name, action)。"
         ),
     )
@@ -320,6 +321,7 @@ def create_server() -> tuple[MCPServer, dict[str, Any]]:
         source_id: str | None = None,
         locator: str | None = None,
         source_ids: list[str] | None = None,
+        url: str | None = None,
         scope: str = "all",
         api_level: int | None = None,
         target_sdk: int | None = None,
@@ -341,6 +343,7 @@ def create_server() -> tuple[MCPServer, dict[str, Any]]:
             source_id=source_id,
             locator=locator,
             source_ids=source_ids,
+            url=url,
             scope=scope,
             api_level=api_level,
             target_sdk=target_sdk,

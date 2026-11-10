@@ -51,6 +51,7 @@ class KnowledgeBaseService:
         source_id: str | None = None,
         locator: str | None = None,
         source_ids: list[str] | None = None,
+        url: str | None = None,
         scope: str = "all",
         api_level: int | None = None,
         target_sdk: int | None = None,
@@ -73,6 +74,10 @@ class KnowledgeBaseService:
                 {"task_id": record.task_id, "status": record.status.lower()},
                 hint="项目源码索引已异步提交，请使用 android_task(action=\"result\")。",
             )
+        if action == "import_url":
+            if not url:
+                raise AndroidMcpError("导入官方文档需要 url", code="missing_url")
+            return ok(self.catalog.import_url(url))
         if action == "sync_sources":
             selected = sorted(set(source_ids or []))
             dedupe = "official-kb-sync|" + ",".join(selected or ["all"])
@@ -297,6 +302,8 @@ class KnowledgeBaseService:
             score += sum(title.lower().count(token) * 4 for token in tokens)
             if query.lower() in haystack:
                 score += 10
+            if query.strip() == record.get("url"):
+                score += 10_000
             if score <= 0:
                 continue
             results.append(self._result_record(record, score, tokens))

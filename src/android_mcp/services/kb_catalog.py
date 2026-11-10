@@ -1,8 +1,6 @@
 """Curated official-source catalog and bounded document ingestion.
 
-The catalog is deliberately allow-listed.  The service never accepts an arbitrary
-URL from an MCP caller, which keeps synchronization auditable and prevents the KB
-from becoming an unrestricted web fetch proxy.
+Curated sources and explicitly imported pages are restricted to official hosts.
 """
 
 from __future__ import annotations
@@ -16,8 +14,8 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
-from urllib.parse import urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.parse import urlsplit, urlunsplit
 
 from ..config import ConfigManager
 from ..models import AndroidMcpError, now_iso
@@ -192,6 +190,18 @@ def _atomic_json_write(path: Path, payload: dict[str, Any]) -> None:
         raise
 
 
+class _OfficialRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        old = urlsplit(req.full_url)
+        new = urlsplit(newurl)
+        if (
+            new.scheme != "https" or new.hostname != old.hostname
+            or new.port not in {None, 443} or new.username is not None
+        ):
+            raise ValueError("官方文档重定向超出允许范围")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 class OfficialSourceCatalog:
     """Load, synchronize and read the curated official documentation corpus."""
 
@@ -204,10 +214,10 @@ class OfficialSourceCatalog:
         return self.config.runtime_dir() / "knowledge" / "official-index.json"
 
     def sources(self) -> list[dict[str, Any]]:
-        return [dict(source) for source in self._sources]
+        return [dict(source) for source in self._sources] + [page["source"] for page in self._imported_pages()]
 
     def get_source(self, source_id: str) -> dict[str, Any]:
-        source = next((item for item in self._sources if item.get("id") == source_id), None)
+        source = next((item for item in self.sources() if item.get("id") == source_id), None)
         if not source:
             raise AndroidMcpError(f"官方来源不存在：{source_id}", code="source_not_found")
         return dict(source)
@@ -219,9 +229,72 @@ class OfficialSourceCatalog:
         except (OSError, ValueError):
             return {"version": 1, "records": []}
 
+    @property
+    def imported_dir(self) -> Path:
+        return self.index_path.parent / "official-imports"
+
+    def _imported_pages(self) -> list[dict[str, Any]]:
+        pages = []
+        for path in sorted(self.imported_dir.glob("*.json")):
+            try:
+                page = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(page, dict) and isinstance(page.get("source"), dict):
+                    pages.append(page)
+            except (OSError, ValueError):
+                continue
+        return pages
+
+    def import_url(self, url: str) -> dict[str, Any]:
+        try:
+            parts = urlsplit(url.strip())
+            allowed = (
+                parts.scheme == "https" and parts.port in {None, 443}
+                and parts.username is None and (
+                    not parts.query or (
+                        parts.hostname == "dev.mi.com" and re.fullmatch(r"pId=[0-9]+", parts.query)
+                    )
+                )
+            )
+        except ValueError:
+            allowed = False
+        if not allowed:
+            raise AndroidMcpError("请输入受支持的官方 HTTPS 文档 URL", code="invalid_official_url")
+
+        host = parts.hostname
+        template = next(
+            (item for item in self._sources if urlsplit(str(item["url"])).hostname == host),
+            None,
+        )
+        if template is None:
+            raise AndroidMcpError("URL 域名不在官方来源白名单中", code="invalid_official_url")
+
+        canonical = urlunsplit(("https", host, parts.path or "/", parts.query, ""))
+        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        version = re.match(r"/reference/tools/gradle-api/([^/]+)/", parts.path)
+        source = {
+            "id": f"official-url:{digest}",
+            "authority": template["authority"],
+            "kind": "api_reference" if parts.path.startswith("/reference/") else "documentation",
+            "title": parts.path.rstrip("/").rsplit("/", 1)[-1] or host,
+            "url": canonical,
+            "license_ref": template.get("license_ref"),
+            "ref": version.group(1) if version else None,
+        }
+        try:
+            records = self._fetch_document(source, 20, 12_000_000)
+        except (URLError, OSError, ValueError) as exc:
+            raise AndroidMcpError(f"官方文档同步失败：{exc}", code="official_import_failed") from exc
+        if not records:
+            raise AndroidMcpError("官方页面没有可索引正文", code="official_import_failed")
+        source["title"] = records[0]["title"]
+        _atomic_json_write(self.imported_dir / f"{digest}.json", {"source": source, "records": records})
+        return {"source_id": source["id"], "url": canonical, "records": len(records), "version": source["ref"]}
+
     def records(self) -> list[dict[str, Any]]:
         value = self.load_index().get("records", [])
-        return [item for item in value if isinstance(item, dict)]
+        return [item for item in value if isinstance(item, dict)] + [
+            record for page in self._imported_pages() for record in page.get("records", [])
+        ]
 
     def sync(
         self,
@@ -238,7 +311,7 @@ class OfficialSourceCatalog:
                 code="source_not_found",
             )
 
-        previous = self.records()
+        previous = self.load_index().get("records", [])
         retained = [item for item in previous if item.get("source_id") not in selected_ids]
         synced: list[str] = []
         skipped: list[str] = []
@@ -323,7 +396,7 @@ class OfficialSourceCatalog:
                 "User-Agent": "android-mcp-official-kb/0.3 (+local development tool)",
             },
         )
-        with urlopen(request, timeout=max(1, int(timeout_seconds))) as response:
+        with build_opener(_OfficialRedirectHandler()).open(request, timeout=max(1, int(timeout_seconds))) as response:
             final_url = str(response.geturl() or url)
             initial_host = urlsplit(url).hostname
             final_parts = urlsplit(final_url)

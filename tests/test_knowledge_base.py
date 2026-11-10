@@ -51,6 +51,37 @@ class KnowledgeBaseTests(unittest.TestCase):
         self.assertEqual(parsed["blocks"][0]["heading"], "Permissions")
         self.assertIn("runtime", parsed["text"])
 
+    def test_official_url_import_is_searchable_and_idempotent(self) -> None:
+        url = "https://developer.android.com/reference/tools/gradle-api/8.13/example/JniLibsApkPackaging"
+        with TemporaryDirectory() as runtime, TemporaryDirectory() as directory:
+            with patch.dict(os.environ, {"LOCALAPPDATA": runtime}, clear=False):
+                tasks = TaskManager(max_workers=1)
+                try:
+                    kb = KnowledgeBaseService(tasks)
+                    with patch.object(kb.catalog, "_fetch_document") as fetch:
+                        with self.assertRaises(AndroidMcpError):
+                            kb.catalog.import_url("https://developer.android.com.example.org/reference")
+                        fetch.assert_not_called()
+                        fetch.side_effect = lambda source, *_: [{
+                            "id": source["id"] + ":1",
+                            "source_id": source["id"],
+                            "source": "official",
+                            "authority": source["authority"],
+                            "title": source["title"],
+                            "url": source["url"],
+                            "version": source["ref"],
+                            "content": "Controls useLegacyPackaging.",
+                        }]
+                        result = kb.catalog.import_url(url)
+                        self.assertEqual(result, kb.catalog.import_url(url + "#useLegacyPackaging"))
+                    self.assertEqual(len(kb.catalog.records()), 1)
+                    self.assertEqual(result["version"], "8.13")
+                    for query in (url, "JniLibsApkPackaging", "useLegacyPackaging"):
+                        matches = kb.search(Path(directory), query, "all", 1, scope="official")["results"]
+                        self.assertEqual(matches[0]["url"], url)
+                finally:
+                    tasks._executor.shutdown(wait=True)
+
     def test_project_search_creates_verifiable_evidence(self) -> None:
         with TemporaryDirectory() as runtime, TemporaryDirectory() as directory:
             with patch.dict(os.environ, {"LOCALAPPDATA": runtime}, clear=False):

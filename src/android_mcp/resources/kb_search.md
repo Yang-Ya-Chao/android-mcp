@@ -14,7 +14,7 @@
 - 用业务概念和 API 名称组合查询，例如 `notification permission Android 13`、`WorkManager background`、`HyperOS autostart`。
 - 用 `api_level`、`target_sdk`、`vendor`、`os_name` 缩小上下文；不确定版本时先查项目 `compileSdk`、`targetSdk` 和设备系统版本。
 - 需要源码依据时检索 `scope=project`；需要平台契约时检索 `scope=official`；两者冲突时优先记录版本、适用条件和测试证据，不要臆测。
-- 结果不足时先 `android_kb(action="sync_sources")`，再重新检索。同步失败不得伪造引用。
+- 优先检索本地。需要查阅未收录的官方网页时，引用或用于开发前必须调用 `android_kb(action="import_url", url="官方页面 URL")`，然后重新检索并保留 evidence_id。导入失败时如实记录，禁止伪造引用。
 
 ## 来源优先级
 
